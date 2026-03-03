@@ -1,0 +1,59 @@
+[package]
+name = "gptop"
+version = "0.1.0"
+edition = "2021"
+authors = ["Simone Margaritelli <evilsocket@gmail.com>"]
+description = "A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA GPUs."
+license = "GPL-3.0"
+repository = "https://github.com/evilsocket/gptop"
+homepage = "https://github.com/evilsocket/gptop"
+readme = "README.md"
+keywords = ["gpu", "monitor", "tui", "apple-silicon", "nvidia"]
+categories = ["command-line-utilities", "hardware-support"]
+exclude = [
+    ".github/**",
+    ".gitignore",
+    "target/**",
+    "homebrew/**",
+]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+ratatui = "0.29"
+crossterm = "0.28"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nvml-wrapper = "0.10"
+
+
+[profile.release]
+lto = true        # Enable link-time optimization
+codegen-units = 1 # Reduce number of codegen units to increase optimizations
+panic = 'abort'   # Abort on panic
+strip = true      # Strip symbols from binary
+
+[profile.deb]
+inherits = "release"
+debug = false
+
+[package.metadata.deb]
+maintainer = "Simone Margaritelli <evilsocket@gmail.com>"
+license-file = ["LICENSE", "0"]
+section = "utilities"
+priority = "optional"
+assets = [
+  ["target/release/gptop", "usr/bin/", "755"],
+  ["LICENSE", "usr/share/doc/gptop/", "644"],
+  ["README.md", "usr/share/doc/gptop/README", "644"]
+]
+extended-description = """\
+GPTop is a GPU monitor TUI with support for both Apple Silicon and NVIDIA GPUs.
+"""
