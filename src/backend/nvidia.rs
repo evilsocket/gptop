@@ -213,7 +213,7 @@ fn read_proc_info(pid: u32) -> (String, String, f32, u64) {
                 let uid: u32 = uid_str.parse().unwrap_or(0);
                 user = resolve_username(uid);
             } else if let Some(val) = line.strip_prefix("VmRSS:") {
-                let kb_str = val.trim().split_whitespace().next().unwrap_or("0");
+                let kb_str = val.split_whitespace().next().unwrap_or("0");
                 vm_rss = kb_str.parse::<u64>().unwrap_or(0) * 1024;
             }
         }
