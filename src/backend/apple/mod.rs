@@ -67,7 +67,7 @@ impl GpuBackend for AppleBackend {
     }
 
     fn sample(&mut self, duration_ms: u64) -> Result<SampleResult> {
-        // Take IOReport delta sample
+        // Take IOReport delta sample (sleeps for duration_ms)
         let samples = self.ioreport.sample_delta(duration_ms)?;
 
         // Parse GPU metrics from IOReport samples
@@ -202,8 +202,18 @@ impl GpuBackend for AppleBackend {
             swap_total,
         };
 
-        // Processes: try to get from IOKit accelerator clients
-        let processes = get_gpu_processes().unwrap_or_default();
+        // Processes: get from IOKit accelerator clients
+        let mut processes = get_gpu_processes().unwrap_or_default();
+
+        // Distribute overall GPU utilization proportionally by GPU memory footprint.
+        // macOS doesn't expose per-process GPU time, so this is the best approximation.
+        let total_footprint: u64 = processes.iter().map(|p| p.gpu_memory).sum();
+        if total_footprint > 0 {
+            for proc in &mut processes {
+                proc.gpu_usage_pct = (proc.gpu_memory as f64 / total_footprint as f64
+                    * gpu_utilization as f64) as f32;
+            }
+        }
 
         Ok(SampleResult {
             gpu_metrics,
@@ -383,6 +393,7 @@ fn get_phys_footprint(pid: u32) -> u64 {
     }
     u64::from_le_bytes(buf[72..80].try_into().unwrap_or_default())
 }
+
 
 /// Collect GPU-using process PIDs from IOKit AGXDeviceUserClient entries.
 fn get_gpu_client_pids() -> Vec<u32> {
