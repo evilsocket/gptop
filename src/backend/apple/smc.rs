@@ -65,9 +65,11 @@ impl SmcConnection {
         let smc_key = str_to_smc_key(key);
 
         // First get key info
-        let mut input = SmcKeyData::default();
-        input.key = smc_key;
-        input.data8 = SMC_CMD_READ_KEY_INFO;
+        let input = SmcKeyData {
+            key: smc_key,
+            data8: SMC_CMD_READ_KEY_INFO,
+            ..Default::default()
+        };
 
         let output = self.call_smc(&input)?;
         let data_type = output.key_info.data_type;
@@ -78,10 +80,12 @@ impl SmcConnection {
         }
 
         // Now read the actual value
-        let mut input2 = SmcKeyData::default();
-        input2.key = smc_key;
+        let mut input2 = SmcKeyData {
+            key: smc_key,
+            data8: SMC_CMD_READ_BYTES,
+            ..Default::default()
+        };
         input2.key_info.data_size = data_size;
-        input2.data8 = SMC_CMD_READ_BYTES;
 
         let output2 = self.call_smc(&input2)?;
         let bytes = &output2.bytes[..data_size as usize];

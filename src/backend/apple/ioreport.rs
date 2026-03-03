@@ -112,9 +112,9 @@ impl IOReportSubscription {
 
         // Merge all into the first dict (in-place mutation)
         let base = channel_dicts[0];
-        for i in 1..channel_dicts.len() {
+        for ch in channel_dicts.iter().skip(1) {
             unsafe {
-                IOReportMergeChannels(base, channel_dicts[i], std::ptr::null());
+                IOReportMergeChannels(base, *ch, std::ptr::null());
             }
         }
 

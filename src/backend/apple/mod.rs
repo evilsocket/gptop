@@ -216,20 +216,10 @@ impl GpuBackend for AppleBackend {
 /// Get known GPU P-state frequencies for a chip (highest first).
 fn get_gpu_pstate_freqs(chip_name: &str, max_freq: u32) -> Vec<u32> {
     // Known DVFS tables for Apple Silicon GPUs
-    if chip_name.contains("M3 Pro") || chip_name.contains("M3 Max") {
-        vec![1398, 1200, 1000, 728, 444]
-    } else if chip_name.contains("M3") {
-        vec![1398, 1200, 1000, 728, 444]
-    } else if chip_name.contains("M4 Pro") || chip_name.contains("M4 Max") {
+    if chip_name.contains("M4") {
         vec![1580, 1398, 1200, 1000, 728]
-    } else if chip_name.contains("M4") {
-        vec![1580, 1398, 1200, 1000, 728]
-    } else if chip_name.contains("M2 Pro") || chip_name.contains("M2 Max") {
+    } else if chip_name.contains("M3") || chip_name.contains("M2") {
         vec![1398, 1200, 1000, 728, 444]
-    } else if chip_name.contains("M2") {
-        vec![1398, 1200, 1000, 728, 444]
-    } else if chip_name.contains("M1 Pro") || chip_name.contains("M1 Max") {
-        vec![1278, 1086, 900, 720, 444]
     } else if chip_name.contains("M1") {
         vec![1278, 1086, 900, 720, 444]
     } else {
@@ -368,9 +358,7 @@ fn detect_gpu_max_freq() -> Option<u32> {
     let brand = sysctl_string("machdep.cpu.brand_string").unwrap_or_default();
     if brand.contains("M4") {
         Some(1580)
-    } else if brand.contains("M3") {
-        Some(1398)
-    } else if brand.contains("M2") {
+    } else if brand.contains("M3") || brand.contains("M2") {
         Some(1398)
     } else if brand.contains("M1") {
         Some(1278)
@@ -474,9 +462,9 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
         let name = exe_path.rsplit('/').next().unwrap_or(exe_path).to_string();
 
         // Classify process type
-        let process_type = if name == "WindowServer" || args.contains("--type=gpu") {
-            "Graphics"
-        } else if name.contains("Wallpaper")
+        let process_type = if name == "WindowServer"
+            || args.contains("--type=gpu")
+            || name.contains("Wallpaper")
             || name.contains("Dock")
             || name.contains("Finder")
             || name.contains("SystemUI")
