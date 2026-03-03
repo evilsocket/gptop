@@ -13,9 +13,9 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 </div>
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png" width="100"/></a>
-  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png" width="100"/></a>
-  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png" width="100"/></a>
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png" width="32%"/></a>
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png" width="32%"/></a>
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png" width="32%"/></a>
 </p>
 
 ## Features
