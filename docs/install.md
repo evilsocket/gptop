@@ -1,9 +1,5 @@
 # Installation
 
-## Precompiled Binaries
-
-Download the latest binary for your platform from the [releases page](https://github.com/evilsocket/gptop/releases/latest).
-
 ## Homebrew (macOS)
 
 ```sh
@@ -11,9 +7,17 @@ brew tap evilsocket/gptop https://github.com/evilsocket/gptop
 brew install evilsocket/gptop/gptop
 ```
 
+## Cargo
+
+If you have [Cargo](https://www.rust-lang.org/tools/install) installed, you can install directly from [crates.io](https://crates.io/crates/gptop):
+
+```sh
+cargo install gptop
+```
+
 ## Debian/Ubuntu (Linux)
 
-A `.deb` package is available from the [releases page](https://github.com/evilsocket/gptop/releases/latest), or you can build it locally:
+You can build and install a `.deb` package locally:
 
 ```sh
 cargo install cargo-deb

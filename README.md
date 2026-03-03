@@ -33,7 +33,7 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 
 ## Quick Start
 
-Download one of the precompiled binaries from the [project latest release page](https://github.com/evilsocket/gptop/releases/latest), or if you're a **Homebrew** user, you can install it with a custom tap:
+If you're a **Homebrew** user, you can install it with a custom tap:
 
 ```bash
 brew tap evilsocket/gptop https://github.com/evilsocket/gptop
