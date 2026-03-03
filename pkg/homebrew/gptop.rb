@@ -3,7 +3,7 @@ class Gptop < Formula
   homepage "https://github.com/evilsocket/gptop"
   version "0.1.1"
   url "https://github.com/evilsocket/gptop/archive/refs/tags/v#{version}.tar.gz"
-  sha256 "bdb7411ff57e99ebdd6464d75dc4259c328e3440bd88ab4049640a1061878a51"
+  sha256 "d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed"
   license "GPL-3.0"
 
   depends_on "rust" => :build

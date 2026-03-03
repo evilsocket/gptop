@@ -129,7 +129,7 @@ def update_files(new_version):
 
 def update_brew_sha256(version):
     """Download the release tarball and update the sha256 in the Homebrew formula."""
-    url = f"https://github.com/evilsocket/gptop/archive/refs/tags/{version}.tar.gz"
+    url = f"https://github.com/evilsocket/gptop/archive/refs/tags/v{version}.tar.gz"
     print(f"downloading {url} ...")
     response = urllib.request.urlopen(url)
     data = response.read()
