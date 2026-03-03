@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 import datetime
+import hashlib
 import os
 import re
 import shutil
 import subprocess
+import urllib.request
 
 UPDATES = {
     'Cargo.toml': {
         'parse': r'^version\s*=\s*"([^"]+)"$',
         'format': 'version = "%s"'
+    },
+    'pkg/homebrew/gptop.rb': {
+        'parse': r'^  version\s+"([^"]+)"$',
+        'format': '  version "%s"'
     }
 }
 
@@ -121,6 +127,25 @@ def update_files(new_version):
         with open(file, 'wt') as fp:
             fp.write(result)
 
+def update_brew_sha256(version):
+    """Download the release tarball and update the sha256 in the Homebrew formula."""
+    url = f"https://github.com/evilsocket/gptop/archive/refs/tags/v{version}.tar.gz"
+    print(f"downloading {url} ...")
+    response = urllib.request.urlopen(url)
+    data = response.read()
+    sha = hashlib.sha256(data).hexdigest()
+    print(f"sha256: {sha}")
+
+    formula = 'pkg/homebrew/gptop.rb'
+    with open(formula, 'rt') as fp:
+        contents = fp.read()
+
+    contents = re.sub(r'sha256\s+"[^"]+"', f'sha256 "{sha}"', contents)
+    with open(formula, 'wt') as fp:
+        fp.write(contents)
+
+    print(f"updated {formula}")
+
 if __name__ == '__main__':
     # make sure we're in the correct working directory
     set_working_dir()
@@ -166,4 +191,6 @@ if __name__ == '__main__':
     print()
 
     print("- Add the generated changelog to the GitHub release.")
-    print("- Update pkg/brew/gptop.rb once the precompiled binaries are available.")
+    print()
+    print("- After pushing the tag, update the Homebrew formula sha256:\n")
+    print("python3 -c \"import pkg.release; pkg.release.update_brew_sha256('%s')\"" % next_ver)
