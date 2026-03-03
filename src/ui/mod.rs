@@ -15,13 +15,22 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
     let device_count = app.devices.len();
 
+    // Adaptive chart heights: reserve at least 8 lines for the process table + footer,
+    // then split remaining space between GPU chart, memory chart and info bar.
+    let available = size.height.saturating_sub(2); // footer + info bar
+    let min_procs = 8u16;
+    let chart_budget = available.saturating_sub(min_procs);
+    // GPU chart gets ~60% of chart budget, memory chart gets ~40%
+    let gpu_chart_h = (chart_budget * 6 / 10).max(5);
+    let mem_chart_h = (chart_budget.saturating_sub(gpu_chart_h)).max(4);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(11),
-            Constraint::Length(7),
+            Constraint::Length(gpu_chart_h),
+            Constraint::Length(mem_chart_h),
             Constraint::Length(1), // info bar
-            Constraint::Min(5),
+            Constraint::Min(min_procs),
             Constraint::Length(1), // footer
         ])
         .split(size);
