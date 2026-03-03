@@ -12,6 +12,12 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 
 </div>
 
+<p align="center">
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/apple.png" height="250"/></a>
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia.png" height="250"/></a>
+  <a href="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png"><img src="https://raw.githubusercontent.com/evilsocket/gptop/main/docs/images/nvidia_dual.png" height="250"/></a>
+</p>
+
 ## Features
 
 - Apple Silicon and NVIDIA supported, more to come.
