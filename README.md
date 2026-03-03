@@ -10,12 +10,6 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 [![CI](https://img.shields.io/github/actions/workflow/status/evilsocket/gptop/ci.yml)](https://github.com/evilsocket/gptop/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-GPL3-brightgreen.svg?style=flat-square)](https://github.com/evilsocket/gptop/blob/master/LICENSE.md)
 
-  <small>Join the project community on our server!</small>
-  <br/><br/>
-  <a href="https://discord.gg/btZpkp45gQ" target="_blank" title="Join our community!">
-    <img src="https://dcbadge.limes.pink/api/server/https://discord.gg/btZpkp45gQ"/>
-  </a>
-
 </div>
 
 ## Features
