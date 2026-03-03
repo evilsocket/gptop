@@ -91,6 +91,30 @@ fn get_cwd(pid: u32) -> String {
         .unwrap_or_default()
 }
 
+#[cfg(target_os = "windows")]
+fn get_exe_path(_pid: u32) -> String {
+    String::new()
+}
+
+#[cfg(target_os = "windows")]
+fn get_cwd(_pid: u32) -> String {
+    String::new()
+}
+
+#[cfg(unix)]
+fn kill_process(pid: u32) {
+    unsafe {
+        libc::kill(pid as i32, libc::SIGTERM);
+    }
+}
+
+#[cfg(windows)]
+fn kill_process(pid: u32) {
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F"])
+        .output();
+}
+
 fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
     let pid = proc.pid;
 
@@ -240,9 +264,7 @@ impl App {
             match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     if let Some(ref confirm) = self.kill_confirm {
-                        unsafe {
-                            libc::kill(confirm.pid as i32, libc::SIGTERM);
-                        }
+                        kill_process(confirm.pid);
                     }
                     self.kill_confirm = None;
                 }
