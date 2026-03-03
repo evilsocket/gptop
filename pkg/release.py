@@ -91,7 +91,7 @@ Use this exact format (no version header, just the categorized list):
 - Be concise — one line per item."""
 
     result = subprocess.run(
-        ["claude", "-m", "haiku", "-p", prompt, "--output-format", "text"],
+        ["claude", "--model", "haiku", "-p", prompt, "--output-format", "text"],
         capture_output=True, text=True
     )
     if result.returncode != 0:
