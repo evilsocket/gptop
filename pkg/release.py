@@ -95,7 +95,7 @@ Use this exact format (no version header, just the categorized list):
         capture_output=True, text=True
     )
     if result.returncode != 0:
-        print(f"claude failed: {result.stderr}")
+        print(f"claude failed with return code {result.returncode}:\nstdout: {result.stdout}\nstderr: {result.stderr}")
         quit()
 
     changelog = result.stdout.strip()
