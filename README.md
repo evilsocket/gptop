@@ -8,6 +8,7 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 [![Release](https://img.shields.io/github/release/evilsocket/gptop.svg?style=flat-square)](https://github.com/evilsocket/gptop/releases/latest)
 [![Rust Report](https://rust-reportcard.xuri.me/badge/github.com/evilsocket/gptop)](https://rust-reportcard.xuri.me/report/github.com/evilsocket/gptop)
 [![CI](https://img.shields.io/github/actions/workflow/status/evilsocket/gptop/ci.yml)](https://github.com/evilsocket/gptop/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/gptop.svg)](https://crates.io/crates/gptop)
 [![License](https://img.shields.io/badge/license-GPL3-brightgreen.svg?style=flat-square)](https://github.com/evilsocket/gptop/blob/master/LICENSE.md)
 
 </div>
@@ -32,14 +33,18 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 
 ## Quick Start
 
-Download one of the precompiled binaries from the [project latest release page](https://github.com/evilsocket/gptopp/releases/latest), or if you're a **Homebrew** user, you can install it with a custom tap:
+Download one of the precompiled binaries from the [project latest release page](https://github.com/evilsocket/gptop/releases/latest), or if you're a **Homebrew** user, you can install it with a custom tap:
 
 ```bash
 brew tap evilsocket/gptop https://github.com/evilsocket/gptop
 brew install evilsocket/gptop/gptop
 ```
 
-You are now ready to go! 🚀
+If you have **Cargo** installed, you can install directly from [crates.io](https://crates.io/crates/gptop):
+
+```bash
+cargo install gptop
+```
 
 ### From source
 

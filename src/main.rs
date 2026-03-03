@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "gptop", about = "GPU/Accelerator Monitor TUI")]
+#[command(name = "gptop", version, about = "GPU/Accelerator Monitor TUI")]
 struct Cli {
     /// Output a single JSON sample and exit
     #[arg(long)]
