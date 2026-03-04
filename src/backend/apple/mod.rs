@@ -595,16 +595,17 @@ struct MachTimebaseInfo {
 
 /// proc_pidinfo flavor constants
 const PROC_PIDTBSDINFO: i32 = 3;
-const PROC_PIDTASKINFO: i32 = 4;
+pub(crate) const PROC_PIDTASKINFO: i32 = 4;
 const PROC_BSDINFO_SIZE: i32 = 136;
-const PROC_TASKINFO_SIZE: i32 = 96;
+pub(crate) const PROC_TASKINFO_SIZE: i32 = 96;
 
 /// proc_taskinfo offsets (from XNU bsd/sys/proc_info.h):
 ///   pti_virtual_size:   0 (u64)
 ///   pti_resident_size:  8 (u64)
 ///   pti_total_user:    16 (u64) — Mach absolute time
 ///   pti_total_system:  24 (u64) — Mach absolute time
-mod taskinfo_offsets {
+pub(crate) mod taskinfo_offsets {
+    pub const PTI_VIRTUAL_SIZE: usize = 0;
     pub const PTI_RESIDENT_SIZE: usize = 8;
     pub const PTI_TOTAL_USER: usize = 16;
     pub const PTI_TOTAL_SYSTEM: usize = 24;
@@ -628,7 +629,7 @@ fn native_proc_pidpath(pid: u32) -> String {
 }
 
 /// Get the full command line (with arguments) for a PID via sysctl KERN_PROCARGS2.
-fn native_procargs(pid: u32) -> String {
+pub(crate) fn native_procargs(pid: u32) -> String {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as i32];
     let mut size: usize = 0;
 
@@ -714,7 +715,7 @@ fn uid_to_username(uid: u32) -> String {
 }
 
 /// Get Mach timebase ratio (numer/denom) for converting absolute time to nanoseconds.
-fn mach_timebase_ratio() -> f64 {
+pub(crate) fn mach_timebase_ratio() -> f64 {
     let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
     unsafe {
         mach_timebase_info(&mut info);

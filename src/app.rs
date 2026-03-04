@@ -98,6 +98,7 @@ mod bsdinfo_offsets {
     pub const PBI_UID: usize = 20;
     pub const PBI_GID: usize = 24;
     pub const PBI_NICE: usize = 116;
+    pub const PBI_START_TVSEC: usize = 120;
 }
 
 /// Get CWD for a process using proc_pidinfo (PROC_PIDVNODEPATHINFO).
@@ -126,9 +127,9 @@ fn native_get_cwd(pid: u32) -> String {
 }
 
 /// Get BSD info for a process using proc_pidinfo (PROC_PIDTBSDINFO).
-/// Returns (ppid, uid, gid, nice, status_code).
+/// Returns (ppid, uid, gid, nice, status_code, start_tvsec).
 #[cfg(target_os = "macos")]
-fn native_bsdinfo(pid: u32) -> Option<(u32, u32, u32, i32, u32)> {
+fn native_bsdinfo(pid: u32) -> Option<(u32, u32, u32, i32, u32, u64)> {
     let mut buf = vec![0u8; PROC_BSDINFO_SIZE as usize];
     let ret = unsafe {
         proc_pidinfo(
@@ -167,7 +168,76 @@ fn native_bsdinfo(pid: u32) -> Option<(u32, u32, u32, i32, u32)> {
             .try_into()
             .ok()?,
     );
-    Some((ppid, uid, gid, nice, status))
+    let start_tvsec = u64::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_START_TVSEC..bsdinfo_offsets::PBI_START_TVSEC + 8]
+            .try_into()
+            .ok()?,
+    );
+    Some((ppid, uid, gid, nice, status, start_tvsec))
+}
+
+/// Get task info for a process using proc_pidinfo (PROC_PIDTASKINFO).
+/// Returns (vsz_bytes, total_user_mach, total_system_mach).
+#[cfg(target_os = "macos")]
+fn native_taskinfo(pid: u32) -> Option<(u64, u64, u64)> {
+    use crate::backend::apple::{taskinfo_offsets, PROC_PIDTASKINFO, PROC_TASKINFO_SIZE};
+    let mut buf = vec![0u8; PROC_TASKINFO_SIZE as usize];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDTASKINFO,
+            0,
+            buf.as_mut_ptr(),
+            PROC_TASKINFO_SIZE,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+    let vsz = u64::from_le_bytes(
+        buf[taskinfo_offsets::PTI_VIRTUAL_SIZE..taskinfo_offsets::PTI_VIRTUAL_SIZE + 8]
+            .try_into()
+            .ok()?,
+    );
+    let total_user = u64::from_le_bytes(
+        buf[taskinfo_offsets::PTI_TOTAL_USER..taskinfo_offsets::PTI_TOTAL_USER + 8]
+            .try_into()
+            .ok()?,
+    );
+    let total_system = u64::from_le_bytes(
+        buf[taskinfo_offsets::PTI_TOTAL_SYSTEM..taskinfo_offsets::PTI_TOTAL_SYSTEM + 8]
+            .try_into()
+            .ok()?,
+    );
+    Some((vsz, total_user, total_system))
+}
+
+/// Format a Unix timestamp as a human-readable start time string (like ps "lstart").
+#[cfg(target_os = "macos")]
+fn format_start_time(start_tvsec: u64) -> String {
+    let time_t = start_tvsec as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::localtime_r(&time_t, &mut tm) };
+    if ret.is_null() {
+        return String::new();
+    }
+    // Format like ps "lstart": "Day Mon DD HH:MM:SS YYYY"
+    let mut buf = [0u8; 64];
+    let fmt = std::ffi::CString::new("%a %b %e %T %Y").unwrap();
+    let len = unsafe { libc::strftime(buf.as_mut_ptr() as *mut _, buf.len(), fmt.as_ptr(), &tm) };
+    if len == 0 {
+        return String::new();
+    }
+    String::from_utf8_lossy(&buf[..len]).to_string()
+}
+
+/// Format CPU time in seconds as "M:SS.ss" (like ps "time" format).
+#[cfg(target_os = "macos")]
+fn format_cpu_time(seconds: f64) -> String {
+    let total_secs = seconds as u64;
+    let minutes = total_secs / 60;
+    let secs = seconds - (minutes as f64 * 60.0);
+    format!("{}:{:05.2}", minutes, secs)
 }
 
 /// Convert a process status code (from proc_bsdinfo) to a ps-style state string.
@@ -198,6 +268,7 @@ fn uid_to_username(uid: u32) -> String {
     }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn ps_field(pid: u32, field: &str) -> String {
     std::process::Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", &format!("{}=", field)])
@@ -265,14 +336,15 @@ fn kill_process(pid: u32) {
 fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
     let pid = proc.pid;
 
-    // Native syscalls for ppid, uid, gid, nice, state (1 syscall instead of 5 ps spawns)
-    let (ppid, uid, gid, nice, state) = native_bsdinfo(pid)
-        .map(|(ppid, uid, gid, nice, status)| (ppid, uid, gid, nice, status_to_state(status)))
-        .unwrap_or((0, 0, 0, 0, "?".to_string()));
+    // Native syscalls for ppid, uid, gid, nice, state, start_tvsec (1 syscall)
+    let (ppid, uid, gid, nice, state, start_tvsec) = native_bsdinfo(pid)
+        .map(|(ppid, uid, gid, nice, status, start_tvsec)| {
+            (ppid, uid, gid, nice, status_to_state(status), start_tvsec)
+        })
+        .unwrap_or((0, 0, 0, 0, "?".to_string(), 0));
 
-    // Native RSS from proc_pid_rusage (already have the FFI in backend/apple/mod.rs)
+    // Native RSS from proc_pid_rusage
     let rss = {
-        // rusage_info_v4: phys_footprint at offset 72, but we want ri_resident_size at offset 64
         let mut buf = [0u8; 512];
         let ret =
             unsafe { crate::backend::apple::proc_pid_rusage_raw(pid as i32, 4, buf.as_mut_ptr()) };
@@ -283,13 +355,51 @@ fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
         }
     };
 
-    // Still use ps for fields that are hard to replicate natively
-    let started = ps_field(pid, "lstart");
-    let cpu_time = ps_field(pid, "time");
-    let cpu_pct = ps_field(pid, "%cpu").parse::<f32>().unwrap_or(0.0);
-    let mem_pct = ps_field(pid, "%mem").parse::<f32>().unwrap_or(0.0);
-    let vsz = ps_field(pid, "vsz").parse::<u64>().unwrap_or(0) * 1024;
-    let command = ps_field(pid, "command");
+    // Native taskinfo for vsz and CPU times (1 syscall)
+    let (vsz, total_user_mach, total_system_mach) = native_taskinfo(pid).unwrap_or((0, 0, 0));
+
+    // Convert Mach absolute time to seconds
+    let timebase = crate::backend::apple::mach_timebase_ratio();
+    let cpu_time_s = (total_user_mach + total_system_mach) as f64 * timebase / 1_000_000_000.0;
+
+    // Format start time natively
+    let started = format_start_time(start_tvsec);
+
+    // Format CPU time as M:SS.ss
+    let cpu_time = format_cpu_time(cpu_time_s);
+
+    // CPU % = cpu_time / wall_time * 100
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let wall_time_s = now - start_tvsec as f64;
+    let cpu_pct = if wall_time_s > 0.0 {
+        (cpu_time_s / wall_time_s * 100.0) as f32
+    } else {
+        0.0
+    };
+
+    // Memory % = rss / total_ram * 100
+    let mem_pct = crate::backend::apple::memory::total_ram()
+        .map(|total| {
+            if total > 0 {
+                rss as f32 / total as f32 * 100.0
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
+
+    // Command line natively via KERN_PROCARGS2, fallback to exe path
+    let command = {
+        let args = crate::backend::apple::native_procargs(pid);
+        if args.is_empty() {
+            get_exe_path(pid)
+        } else {
+            args
+        }
+    };
 
     let path = get_exe_path(pid);
     let cwd = get_cwd(pid);
@@ -755,7 +865,8 @@ mod tests {
     #[test]
     fn test_native_bsdinfo_ppid() {
         let pid = std::process::id();
-        let (ppid, _, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed for own pid");
+        let (ppid, _, _, _, _, _) =
+            native_bsdinfo(pid).expect("bsdinfo should succeed for own pid");
         let ps_ppid: u32 = ps_field(pid, "ppid").parse().unwrap_or(0);
         assert_eq!(ppid, ps_ppid, "native ppid should match ps ppid");
     }
@@ -763,7 +874,7 @@ mod tests {
     #[test]
     fn test_native_bsdinfo_uid() {
         let pid = std::process::id();
-        let (_, uid, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let (_, uid, _, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
         let ps_uid: u32 = ps_field(pid, "uid").parse().unwrap_or(0);
         assert_eq!(uid, ps_uid, "native uid should match ps uid");
     }
@@ -771,7 +882,7 @@ mod tests {
     #[test]
     fn test_native_bsdinfo_gid() {
         let pid = std::process::id();
-        let (_, _, gid, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let (_, _, gid, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
         let ps_gid: u32 = ps_field(pid, "gid").parse().unwrap_or(0);
         assert_eq!(gid, ps_gid, "native gid should match ps gid");
     }
@@ -779,7 +890,7 @@ mod tests {
     #[test]
     fn test_native_bsdinfo_nice() {
         let pid = std::process::id();
-        let (_, _, _, nice, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let (_, _, _, nice, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
         let ps_nice: i32 = ps_field(pid, "nice").parse().unwrap_or(0);
         assert_eq!(nice, ps_nice, "native nice should match ps nice");
     }
@@ -787,7 +898,7 @@ mod tests {
     #[test]
     fn test_native_bsdinfo_state() {
         let pid = std::process::id();
-        let (_, _, _, _, status) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let (_, _, _, _, status, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
         let state = status_to_state(status);
         // Our process should be Running (R) or Sleeping (S) — ps may show
         // R or S depending on timing, so just verify we get a valid state
@@ -804,5 +915,136 @@ mod tests {
         let name = uid_to_username(uid);
         let ps_user = ps_field(std::process::id(), "user");
         assert_eq!(name, ps_user, "uid_to_username should match ps user");
+    }
+
+    #[test]
+    fn test_native_started() {
+        let pid = std::process::id();
+        let (_, _, _, _, _, start_tvsec) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let native = format_start_time(start_tvsec);
+        let ps = ps_field(pid, "lstart");
+        assert_eq!(
+            native, ps,
+            "native started '{}' should match ps lstart '{}'",
+            native, ps
+        );
+    }
+
+    #[test]
+    fn test_native_vsz() {
+        let pid = std::process::id();
+        let (vsz, _, _) = native_taskinfo(pid).expect("taskinfo should succeed");
+        let ps_vsz = ps_field(pid, "vsz").parse::<u64>().unwrap_or(0) * 1024;
+        // Allow within 10% since VSZ can change between calls
+        let diff = (vsz as f64 - ps_vsz as f64).abs();
+        let tolerance = ps_vsz as f64 * 0.1;
+        assert!(
+            diff <= tolerance || ps_vsz == 0,
+            "native vsz {} should be within 10% of ps vsz {}, diff={}",
+            vsz,
+            ps_vsz,
+            diff
+        );
+    }
+
+    #[test]
+    fn test_native_cpu_pct() {
+        let pid = std::process::id();
+        let (_, _, _, _, _, start_tvsec) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let (_, total_user, total_system) = native_taskinfo(pid).expect("taskinfo should succeed");
+        let timebase = crate::backend::apple::mach_timebase_ratio();
+        let cpu_time_s = (total_user + total_system) as f64 * timebase / 1e9;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let wall = now - start_tvsec as f64;
+        let native_pct = if wall > 0.0 {
+            (cpu_time_s / wall * 100.0) as f32
+        } else {
+            0.0
+        };
+        let ps_pct = ps_field(pid, "%cpu").parse::<f32>().unwrap_or(0.0);
+        let diff = (native_pct - ps_pct).abs();
+        assert!(
+            diff <= 2.0,
+            "native cpu_pct {:.2} should be within ±2.0 of ps %cpu {:.2}",
+            native_pct,
+            ps_pct
+        );
+    }
+
+    #[test]
+    fn test_native_cpu_time() {
+        let pid = std::process::id();
+        let (_, total_user, total_system) = native_taskinfo(pid).expect("taskinfo should succeed");
+        let timebase = crate::backend::apple::mach_timebase_ratio();
+        let cpu_time_s = (total_user + total_system) as f64 * timebase / 1e9;
+        let native = format_cpu_time(cpu_time_s);
+        let ps = ps_field(pid, "time");
+        // Parse both to seconds for approximate comparison
+        let parse_time = |s: &str| -> f64 {
+            let parts: Vec<&str> = s.split(':').collect();
+            if parts.len() == 2 {
+                let mins: f64 = parts[0].parse().unwrap_or(0.0);
+                let secs: f64 = parts[1].parse().unwrap_or(0.0);
+                mins * 60.0 + secs
+            } else {
+                0.0
+            }
+        };
+        let native_s = parse_time(&native);
+        let ps_s = parse_time(&ps);
+        let diff = (native_s - ps_s).abs();
+        assert!(
+            diff <= 1.0,
+            "native cpu_time '{}' ({:.2}s) should be within 1s of ps time '{}' ({:.2}s)",
+            native,
+            native_s,
+            ps,
+            ps_s
+        );
+    }
+
+    #[test]
+    fn test_native_mem_pct() {
+        let pid = std::process::id();
+        // Get RSS from proc_pid_rusage
+        let rss = {
+            let mut buf = [0u8; 512];
+            let ret = unsafe {
+                crate::backend::apple::proc_pid_rusage_raw(pid as i32, 4, buf.as_mut_ptr())
+            };
+            if ret == 0 {
+                u64::from_le_bytes(buf[64..72].try_into().unwrap_or_default())
+            } else {
+                0
+            }
+        };
+        let total = crate::backend::apple::memory::total_ram().unwrap_or(1);
+        let native_pct = rss as f32 / total as f32 * 100.0;
+        let ps_pct = ps_field(pid, "%mem").parse::<f32>().unwrap_or(0.0);
+        let diff = (native_pct - ps_pct).abs();
+        assert!(
+            diff <= 1.0,
+            "native mem_pct {:.4} should be within ±1.0 of ps %mem {:.4}",
+            native_pct,
+            ps_pct
+        );
+    }
+
+    #[test]
+    fn test_native_command() {
+        let pid = std::process::id();
+        let native = crate::backend::apple::native_procargs(pid);
+        let ps = ps_field(pid, "command");
+        // Compare first argv[0] (executable path)
+        let native_argv0 = native.split_whitespace().next().unwrap_or("");
+        let ps_argv0 = ps.split_whitespace().next().unwrap_or("");
+        assert_eq!(
+            native_argv0, ps_argv0,
+            "native argv[0] '{}' should match ps command argv[0] '{}'",
+            native_argv0, ps_argv0
+        );
     }
 }
