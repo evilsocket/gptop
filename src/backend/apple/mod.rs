@@ -577,6 +577,239 @@ fn get_gpu_client_pids() -> Vec<u32> {
     pids
 }
 
+// proc_pidinfo / proc_pidpath FFI (shared with app.rs declarations)
+extern "C" {
+    fn proc_pidpath(pid: i32, buffer: *mut u8, buffersize: u32) -> i32;
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut u8, buffersize: i32) -> i32;
+}
+
+extern "C" {
+    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
+}
+
+#[repr(C)]
+struct MachTimebaseInfo {
+    numer: u32,
+    denom: u32,
+}
+
+/// proc_pidinfo flavor constants
+const PROC_PIDTBSDINFO: i32 = 3;
+const PROC_PIDTASKINFO: i32 = 4;
+const PROC_BSDINFO_SIZE: i32 = 136;
+const PROC_TASKINFO_SIZE: i32 = 96;
+
+/// proc_taskinfo offsets (from XNU bsd/sys/proc_info.h):
+///   pti_virtual_size:   0 (u64)
+///   pti_resident_size:  8 (u64)
+///   pti_total_user:    16 (u64) — Mach absolute time
+///   pti_total_system:  24 (u64) — Mach absolute time
+mod taskinfo_offsets {
+    pub const PTI_RESIDENT_SIZE: usize = 8;
+    pub const PTI_TOTAL_USER: usize = 16;
+    pub const PTI_TOTAL_SYSTEM: usize = 24;
+}
+
+/// proc_bsdinfo offsets (same as in app.rs)
+mod bsdinfo_offsets {
+    pub const PBI_UID: usize = 20;
+    pub const PBI_START_TVSEC: usize = 120;
+}
+
+/// Get the executable path for a PID via proc_pidpath.
+fn native_proc_pidpath(pid: u32) -> String {
+    let mut buf = vec![0u8; 4096];
+    let ret = unsafe { proc_pidpath(pid as i32, buf.as_mut_ptr(), buf.len() as u32) };
+    if ret > 0 {
+        String::from_utf8_lossy(&buf[..ret as usize]).to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// Get the full command line (with arguments) for a PID via sysctl KERN_PROCARGS2.
+fn native_procargs(pid: u32) -> String {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as i32];
+    let mut size: usize = 0;
+
+    // First call to get buffer size
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ret != 0 || size == 0 {
+        return String::new();
+    }
+
+    let mut buf = vec![0u8; size];
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr() as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ret != 0 {
+        return String::new();
+    }
+
+    // Layout: argc (i32), exec_path (null-terminated), padding nulls, argv[0..argc] (null-separated)
+    if size < 4 {
+        return String::new();
+    }
+    let argc = i32::from_le_bytes(buf[0..4].try_into().unwrap_or_default()) as usize;
+
+    // Find end of exec_path (first null after offset 4)
+    let exec_end = match buf[4..size].iter().position(|&b| b == 0) {
+        Some(pos) => 4 + pos,
+        None => return String::new(),
+    };
+
+    // Skip padding nulls after exec_path
+    let args_start = match buf[exec_end..size].iter().position(|&b| b != 0) {
+        Some(pos) => exec_end + pos,
+        None => return String::new(),
+    };
+
+    // Collect argc arguments (null-separated)
+    let mut args = Vec::with_capacity(argc);
+    let mut pos = args_start;
+    for _ in 0..argc {
+        let end = buf[pos..size]
+            .iter()
+            .position(|&b| b == 0)
+            .map(|p| pos + p)
+            .unwrap_or(size);
+        let arg = String::from_utf8_lossy(&buf[pos..end]).to_string();
+        args.push(arg);
+        pos = end + 1;
+        if pos >= size {
+            break;
+        }
+    }
+
+    args.join(" ")
+}
+
+/// Get username from UID using getpwuid.
+fn uid_to_username(uid: u32) -> String {
+    unsafe {
+        let pw = libc::getpwuid(uid);
+        if pw.is_null() {
+            return uid.to_string();
+        }
+        std::ffi::CStr::from_ptr((*pw).pw_name)
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
+/// Get Mach timebase ratio (numer/denom) for converting absolute time to nanoseconds.
+fn mach_timebase_ratio() -> f64 {
+    let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
+    unsafe {
+        mach_timebase_info(&mut info);
+    }
+    if info.denom == 0 {
+        1.0
+    } else {
+        info.numer as f64 / info.denom as f64
+    }
+}
+
+/// Native process info for a single PID. Returns (user, cpu_pct, rss_bytes, args_string).
+fn native_process_info(pid: u32, timebase: f64, now: f64) -> Option<(String, f32, u64, String)> {
+    // Get bsdinfo for uid and start time
+    let mut bsd_buf = vec![0u8; PROC_BSDINFO_SIZE as usize];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDTBSDINFO,
+            0,
+            bsd_buf.as_mut_ptr(),
+            PROC_BSDINFO_SIZE,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+
+    let uid = u32::from_le_bytes(
+        bsd_buf[bsdinfo_offsets::PBI_UID..bsdinfo_offsets::PBI_UID + 4]
+            .try_into()
+            .ok()?,
+    );
+    let start_tvsec = u64::from_le_bytes(
+        bsd_buf[bsdinfo_offsets::PBI_START_TVSEC..bsdinfo_offsets::PBI_START_TVSEC + 8]
+            .try_into()
+            .ok()?,
+    );
+    let user = uid_to_username(uid);
+
+    // Get taskinfo for CPU times and resident size
+    let mut task_buf = vec![0u8; PROC_TASKINFO_SIZE as usize];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDTASKINFO,
+            0,
+            task_buf.as_mut_ptr(),
+            PROC_TASKINFO_SIZE,
+        )
+    };
+
+    let (cpu_pct, rss) = if ret > 0 {
+        let resident_size = u64::from_le_bytes(
+            task_buf[taskinfo_offsets::PTI_RESIDENT_SIZE..taskinfo_offsets::PTI_RESIDENT_SIZE + 8]
+                .try_into()
+                .unwrap_or_default(),
+        );
+        let total_user = u64::from_le_bytes(
+            task_buf[taskinfo_offsets::PTI_TOTAL_USER..taskinfo_offsets::PTI_TOTAL_USER + 8]
+                .try_into()
+                .unwrap_or_default(),
+        );
+        let total_system = u64::from_le_bytes(
+            task_buf[taskinfo_offsets::PTI_TOTAL_SYSTEM..taskinfo_offsets::PTI_TOTAL_SYSTEM + 8]
+                .try_into()
+                .unwrap_or_default(),
+        );
+
+        // Convert Mach absolute time to seconds
+        let cpu_time_s = (total_user + total_system) as f64 * timebase / 1_000_000_000.0;
+        let wall_time_s = now - start_tvsec as f64;
+        let pct = if wall_time_s > 0.0 {
+            (cpu_time_s / wall_time_s * 100.0) as f32
+        } else {
+            0.0
+        };
+
+        (pct, resident_size)
+    } else {
+        (0.0, 0)
+    };
+
+    // Get full command line with arguments
+    let args = native_procargs(pid);
+    // Fallback to proc_pidpath if procargs failed
+    let args = if args.is_empty() {
+        native_proc_pidpath(pid)
+    } else {
+        args
+    };
+
+    Some((user, cpu_pct, rss, args))
+}
+
 fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
     // Step 1: Get all PIDs that have an AGXDeviceUserClient (= GPU connection)
     let gpu_pids = get_gpu_client_pids();
@@ -584,42 +817,26 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
         return Ok(Vec::new());
     }
 
-    // Step 2: Get process info for those PIDs via ps
+    // Step 2: Get process info natively (no subprocess)
+    let timebase = mach_timebase_ratio();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+
     let mut processes = Vec::new();
-    let output = Command::new("ps")
-        .args(["-eo", "pid=,user=,%cpu=,rss=,command="])
-        .output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let mut parts = line.split_whitespace();
-        let pid: u32 = match parts.next().and_then(|s| s.parse().ok()) {
-            Some(p) => p,
-            None => continue,
+    for &pid in &gpu_pids {
+        let (user, cpu_pct, rss, args) = match native_process_info(pid, timebase, now) {
+            Some(info) => info,
+            None => continue, // process may have exited
         };
 
-        // Only include processes that have a GPU client
-        if gpu_pids.binary_search(&pid).is_err() {
-            continue;
-        }
-
-        let user = match parts.next() {
-            Some(u) => u.to_string(),
-            None => continue,
-        };
-        let cpu_pct: f32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let rss_kb: u64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-        let args: String = parts.collect::<Vec<_>>().join(" ");
         if args.is_empty() {
             continue;
         }
 
-        // Extract executable name
+        // Extract executable name from args or path
         let exe_path = args.split_whitespace().next().unwrap_or(&args);
         let name = exe_path.rsplit('/').next().unwrap_or(exe_path).to_string();
 
@@ -658,7 +875,7 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
             gpu_usage_pct: 0.0,
             gpu_memory: footprint,
             cpu_usage_pct: cpu_pct,
-            host_memory: rss_kb * 1024,
+            host_memory: rss,
             process_type: process_type.to_string(),
         });
     }
@@ -689,6 +906,37 @@ mod tests {
         for pid in &pids {
             assert!(*pid > 0, "PID should be > 0");
         }
+    }
+
+    #[test]
+    fn test_native_get_gpu_processes() {
+        let procs = get_gpu_processes().expect("get_gpu_processes should succeed");
+        // Should find at least WindowServer
+        assert!(
+            !procs.is_empty(),
+            "get_gpu_processes() should find at least one process"
+        );
+        // Verify all processes have valid PIDs and names
+        for p in &procs {
+            assert!(p.pid > 0, "PID should be > 0");
+            assert!(!p.name.is_empty(), "name should not be empty");
+            assert!(!p.user.is_empty(), "user should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_native_process_info_self() {
+        let pid = std::process::id();
+        let timebase = mach_timebase_ratio();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let (user, _cpu_pct, rss, args) =
+            native_process_info(pid, timebase, now).expect("should get info for own process");
+        assert!(!user.is_empty(), "user should not be empty");
+        assert!(rss > 0, "rss should be > 0 for own process");
+        assert!(!args.is_empty(), "args should not be empty");
     }
 
     #[test]
