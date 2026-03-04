@@ -959,6 +959,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore] // Requires a display with GPU clients (e.g., WindowServer)
     fn test_native_get_gpu_client_pids() {
         let pids = get_gpu_client_pids();
         // On macOS with a display, there should always be at least WindowServer
@@ -973,6 +974,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires a display with GPU clients (e.g., WindowServer)
     fn test_native_get_gpu_processes() {
         let procs = get_gpu_processes().expect("get_gpu_processes should succeed");
         // Should find at least WindowServer
@@ -1004,6 +1006,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // May fail in CI/headless environments
     fn test_native_detect_gpu_core_count() {
         let cores = detect_gpu_core_count();
         assert!(cores.is_some(), "should detect GPU core count");
