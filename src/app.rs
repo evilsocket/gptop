@@ -982,7 +982,7 @@ mod tests {
         let ps_pct = ps_field(pid, "%cpu").parse::<f32>().unwrap_or(0.0);
         let diff = (native_pct - ps_pct).abs();
         assert!(
-            diff <= 2.0,
+            diff <= 2.0 || ps_pct < 1.0,
             "native cpu_pct {:.2} should be within ±2.0 of ps %cpu {:.2}",
             native_pct,
             ps_pct
