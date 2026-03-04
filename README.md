@@ -28,6 +28,7 @@ A cross-platform GPU monitor TUI with support for both Apple Silicon and NVIDIA 
 - Process inspector with detailed info (path, CWD, command line, etc.)
 - Kill processes directly from the TUI
 - Multi-GPU support with side-by-side charts
+- Advanced view: hostname, uptime, external IP, RAM/Swap, encoder/decoder, fan speed
 - JSON output mode for scripting and monitoring pipelines
 - Configurable update interval and accent colors (persisted across sessions)
 
@@ -77,6 +78,7 @@ gptop --json --interval 2000
 | `+` / `-` | Toggle sort order (asc/desc) |
 | `c` | Cycle accent color |
 | `e` / `d` | Increase / decrease update interval |
+| `a` | Toggle Advanced view |
 
 ## Contributors
 

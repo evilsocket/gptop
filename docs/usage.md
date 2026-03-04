@@ -30,6 +30,24 @@ Multi-GPU systems show side-by-side charts, one column per device.
 | `c` | Cycle accent color |
 | `e` | Increase update interval (+250ms, max 5000ms) |
 | `d` | Decrease update interval (-250ms, min 250ms) |
+| `a` | Toggle Advanced view |
+
+## Advanced View
+
+Press `a` to toggle the Advanced view, which shows additional system and GPU metrics:
+
+- **Host**: Hostname
+- **Uptime**: System uptime (days, hours, minutes)
+- **IP**: External/public IP address
+- **RAM**: System memory used/total and percentage
+- **Swap**: Swap used/total (if active)
+- **CPU**: CPU power draw (Apple Silicon only)
+- **ANE**: Neural Engine power draw (Apple Silicon only)
+- **GPU Power**: Current/max power with percentage of limit
+- **Enc**: Hardware encoder utilization (NVIDIA only)
+- **Dec**: Hardware decoder utilization (NVIDIA only)
+- **Fan**: Fan speed percentage (NVIDIA only)
+- **Throttled**: Thermal throttling warning (if temperature > 85°C)
 
 ## Process Detail Modal
 
