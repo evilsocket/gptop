@@ -166,6 +166,9 @@ impl GpuBackend for NvidiaBackend {
                 }
             }
 
+            // Check if we got any real per-process utilization data
+            let have_per_process_util = pid_gpu_pct.values().any(|&v| v > 0);
+
             for (pid, gpu_memory) in &pid_gpu_mem {
                 let pid = *pid;
                 let gpu_pct = pid_gpu_pct.get(&pid).copied().unwrap_or(0) as f32;
@@ -183,6 +186,25 @@ impl GpuBackend for NvidiaBackend {
                     host_memory,
                     process_type: "GPU".to_string(),
                 });
+            }
+
+            // Fallback: if NVML didn't report per-process utilization,
+            // distribute overall GPU utilization proportionally by GPU memory.
+            if !have_per_process_util && gpu_util > 0 {
+                let total_mem: u64 = all_processes
+                    .iter()
+                    .filter(|p| p.device_id == dev_info.id)
+                    .map(|p| p.gpu_memory)
+                    .sum();
+                if total_mem > 0 {
+                    for proc in all_processes
+                        .iter_mut()
+                        .filter(|p| p.device_id == dev_info.id)
+                    {
+                        proc.gpu_usage_pct =
+                            (proc.gpu_memory as f64 / total_mem as f64 * gpu_util as f64) as f32;
+                    }
+                }
             }
         }
 
