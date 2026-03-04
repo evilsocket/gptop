@@ -113,7 +113,7 @@ pub fn render_info_bar(f: &mut Frame, area: Rect, metrics: Option<&GpuMetrics>, 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn render_chart(
+pub(crate) fn render_chart(
     f: &mut Frame,
     area: Rect,
     history: &VecDeque<(f64, f64)>,

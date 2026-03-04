@@ -106,7 +106,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
 
     // Render process detail modal if open
     if let Some(ref detail) = app.process_detail {
-        render_process_modal(f, size, detail, accent);
+        let gpu_hist = app.process_gpu_history.get(&detail.pid);
+        render_process_modal(f, size, detail, accent, gpu_hist);
     }
 
     // Render kill confirmation dialog if open
@@ -157,16 +158,51 @@ fn render_process_modal(
     area: Rect,
     detail: &crate::app::ProcessDetail,
     accent: Color,
+    gpu_history: Option<&std::collections::VecDeque<(f64, f64)>>,
 ) {
-    // Center modal, 70% width, up to 20 lines tall
+    let chart_h = if gpu_history.is_some_and(|h| !h.is_empty()) {
+        9u16
+    } else {
+        0u16
+    };
+    // Center modal, 70% width, up to 30 lines tall
     let modal_w = (area.width as f32 * 0.70).max(50.0).min(area.width as f32) as u16;
-    let modal_h = 20u16.min(area.height.saturating_sub(4));
+    let modal_h = (20 + chart_h).min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(modal_w)) / 2;
     let y = (area.height.saturating_sub(modal_h)) / 2;
     let modal_area = Rect::new(x, y, modal_w, modal_h);
 
     // Clear background
     f.render_widget(Clear, modal_area);
+
+    // Outer block for the whole modal
+    let title = format!(" Process {} — {} ", detail.pid, detail.name);
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(accent))
+        .title(Span::styled(
+            title,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ));
+    let inner_area = outer_block.inner(modal_area);
+    f.render_widget(outer_block, modal_area);
+
+    // Split inner area: chart on top (if present), text fields below
+    let (chart_area, text_area) = if chart_h > 0 {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(chart_h), Constraint::Min(1)])
+            .split(inner_area);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, inner_area)
+    };
+
+    // Render GPU usage chart if we have history
+    if let (Some(chart_rect), Some(history)) = (chart_area, gpu_history) {
+        let chart_title = format!(" GPU {:.1}% ", detail.gpu_usage_pct);
+        charts::render_chart(f, chart_rect, history, &chart_title, accent);
+    }
 
     let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let val_style = Style::default().fg(Color::White);
@@ -202,6 +238,7 @@ fn render_process_modal(
         "GPU Memory",
         &format_bytes_long(detail.gpu_memory),
     );
+    add_field(&mut lines, "GPU%", &format!("{:.1}%", detail.gpu_usage_pct));
     add_field(&mut lines, "Path", &detail.path);
     add_field(&mut lines, "CWD", &detail.cwd);
 
@@ -222,20 +259,8 @@ fn render_process_modal(
         }
     }
 
-    let title = format!(" Process {} — {} ", detail.pid, detail.name);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(accent))
-        .title(Span::styled(
-            title,
-            Style::default().fg(accent).add_modifier(Modifier::BOLD),
-        ));
-
-    let paragraph = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: false });
-
-    f.render_widget(paragraph, modal_area);
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    f.render_widget(paragraph, text_area);
 }
 
 fn render_kill_confirm(

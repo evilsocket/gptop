@@ -7,7 +7,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::style::Color;
 use ratatui::widgets::TableState;
 use ratatui::Terminal;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -32,6 +32,7 @@ pub struct ProcessDetail {
     pub rss: u64,
     pub vsz: u64,
     pub gpu_memory: u64,
+    pub gpu_usage_pct: f32,
     pub path: String,
     pub cwd: String,
     pub command: String,
@@ -309,6 +310,7 @@ fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
         rss,
         vsz,
         gpu_memory: proc.gpu_memory,
+        gpu_usage_pct: proc.gpu_usage_pct,
         path,
         cwd,
         command,
@@ -351,6 +353,7 @@ fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
         rss,
         vsz,
         gpu_memory: proc.gpu_memory,
+        gpu_usage_pct: proc.gpu_usage_pct,
         path,
         cwd,
         command,
@@ -392,6 +395,7 @@ pub struct App {
     pub table_state: TableState,
     pub sorted_processes: Vec<GpuProcess>,
     pub process_detail: Option<ProcessDetail>,
+    pub process_gpu_history: HashMap<u32, VecDeque<(f64, f64)>>,
     pub kill_confirm: Option<KillConfirm>,
     should_quit: bool,
     start_time: Instant,
@@ -414,6 +418,7 @@ impl App {
             table_state: TableState::default(),
             sorted_processes: Vec::new(),
             process_detail: None,
+            process_gpu_history: HashMap::new(),
             kill_confirm: None,
             should_quit: false,
             start_time: Instant::now(),
@@ -455,6 +460,19 @@ impl App {
                 if self.power_history[id].len() > MAX_HISTORY {
                     self.power_history[id].pop_front();
                 }
+            }
+        }
+
+        // Track per-process GPU usage history
+        let active_pids: std::collections::HashSet<u32> =
+            sample.processes.iter().map(|p| p.pid).collect();
+        self.process_gpu_history
+            .retain(|pid, _| active_pids.contains(pid));
+        for proc in &sample.processes {
+            let hist = self.process_gpu_history.entry(proc.pid).or_default();
+            hist.push_back((elapsed, proc.gpu_usage_pct as f64));
+            if hist.len() > MAX_HISTORY {
+                hist.pop_front();
             }
         }
     }
