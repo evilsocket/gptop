@@ -1,3 +1,21 @@
+## Version 0.2.0 (2026-03-04)
+
+🚀 New Features
+- Advanced view with power limits, system stats, fan speed, throttling status, hostname, and uptime
+- Per-process GPU usage chart in process detail modal
+
+🐛 Fixes
+- Fixed NVML fan speed API usage and removed unavailable thermal throttling status
+- Fixed GPU process utilization distribution when per-process stats unavailable
+- Fixed Homebrew release URL and checksum for tagged releases
+
+📚 Documentation
+- Added Advanced view documentation to README and usage guide
+
+🔧 Miscellaneous
+- Replaced shell commands with native macOS APIs for improved process detection reliability
+- Improved CI/CD reliability with platform-specific test gating and headless environment detection
+
 ## Version 0.1.1 (2026-03-03)
 
 🚀 New Features:
