@@ -179,7 +179,67 @@ impl GpuBackend for AppleBackend {
             },
             encoder_pct: None,
             decoder_pct: None,
+            fan_speed_pct: None,
+            throttling_reason: None,
         }];
+
+        // Hostname
+        let hostname = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        // Uptime - parse from uptime command output "up X days, HH:MM"
+        let uptime_secs = std::process::Command::new("uptime")
+            .output()
+            .ok()
+            .and_then(|o| {
+                let output = String::from_utf8_lossy(&o.stdout);
+                // Look for "up" pattern
+                if let Some(pos) = output.find("up ") {
+                    let rest = &output[pos + 3..];
+                    // Parse "X days," or "HH:MM"
+                    let parts: Vec<&str> = rest
+                        .split(',')
+                        .next()
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .collect();
+                    if parts.len() >= 2 {
+                        if parts[1] == "days" || parts[1] == "day" {
+                            parts[0].parse::<u64>().ok().map(|d| d * 86400)
+                        } else {
+                            // HH:MM format - this is less than 24 hours
+                            let time_parts: Vec<&str> = parts[0].split(':').collect();
+                            if time_parts.len() == 2 {
+                                let hours: u64 = time_parts[0].parse().unwrap_or(0);
+                                let mins: u64 = time_parts[1].parse().unwrap_or(0);
+                                Some(hours * 3600 + mins * 60)
+                            } else {
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        // External IP (async would be better but keep it simple)
+        let external_ip = std::process::Command::new("sh")
+            .args(["-c", "curl -s https://api.ipify.org 2>/dev/null || echo ''"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            });
 
         let system = SystemMetrics {
             cpu_power: if cpu_power_watts > 0.0 {
@@ -204,6 +264,9 @@ impl GpuBackend for AppleBackend {
             ram_total: self.total_ram,
             swap_used,
             swap_total,
+            hostname,
+            uptime_secs,
+            external_ip,
         };
 
         // Processes: get from IOKit accelerator clients

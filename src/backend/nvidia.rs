@@ -111,6 +111,19 @@ impl GpuBackend for NvidiaBackend {
             // Temperature
             let temp = ok_or_unsupported(device.temperature(TemperatureSensor::Gpu)).unwrap_or(0);
 
+            // Fan speed
+            let fan_speed_pct = device.fan_speed().ok();
+
+            // Thermal throttling status
+            let throttling_reason = device
+                .thermal_throttling_status()
+                .ok()
+                .map(|t| match t {
+                    nvml_wrapper::enum_wrappers::device::ThrottlingReason::None => None,
+                    other => Some(format!("{:?}", other)),
+                })
+                .flatten();
+
             // Encoder/decoder utilization
             let encoder_pct = device
                 .encoder_utilization()
@@ -137,6 +150,8 @@ impl GpuBackend for NvidiaBackend {
                     .map(|cores| cores as f32 * freq_mhz as f32 * 2.0 / 1e6),
                 encoder_pct,
                 decoder_pct,
+                fan_speed_pct,
+                throttling_reason,
             });
 
             // Collect processes
@@ -326,6 +341,33 @@ fn read_system_metrics() -> SystemMetrics {
         }
     }
 
+    // Hostname
+    let hostname = std::fs::read_to_string("/etc/hostname")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    // Uptime from /proc/uptime
+    let uptime_secs = std::fs::read_to_string("/proc/uptime")
+        .ok()
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v as u64)
+        .unwrap_or(0);
+
+    // External IP (try to fetch)
+    let external_ip = std::process::Command::new("sh")
+        .args(["-c", "curl -s https://api.ipify.org 2>/dev/null || echo ''"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if s.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        });
+
     SystemMetrics {
         cpu_power: None,
         ane_power: None,
@@ -334,5 +376,8 @@ fn read_system_metrics() -> SystemMetrics {
         ram_total,
         swap_used: swap_total.saturating_sub(swap_free),
         swap_total,
+        hostname,
+        uptime_secs,
+        external_ip,
     }
 }

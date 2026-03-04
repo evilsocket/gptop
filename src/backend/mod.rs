@@ -30,6 +30,8 @@ pub struct GpuMetrics {
     pub fp32_tflops: Option<f32>,
     pub encoder_pct: Option<f32>,
     pub decoder_pct: Option<f32>,
+    pub fan_speed_pct: Option<u32>,
+    pub throttling_reason: Option<String>,
 }
 
 /// A process using the GPU
@@ -56,6 +58,9 @@ pub struct SystemMetrics {
     pub ram_total: u64,
     pub swap_used: u64,
     pub swap_total: u64,
+    pub hostname: String,
+    pub uptime_secs: u64,
+    pub external_ip: Option<String>,
 }
 
 /// Result of a single sampling interval

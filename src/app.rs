@@ -507,6 +507,7 @@ pub struct App {
     pub process_detail: Option<ProcessDetail>,
     pub process_gpu_history: HashMap<u32, VecDeque<(f64, f64)>>,
     pub kill_confirm: Option<KillConfirm>,
+    pub advanced_view: bool,
     should_quit: bool,
     start_time: Instant,
     accent_idx: usize,
@@ -530,6 +531,7 @@ impl App {
             process_detail: None,
             process_gpu_history: HashMap::new(),
             kill_confirm: None,
+            advanced_view: false,
             should_quit: false,
             start_time: Instant::now(),
         }
@@ -630,6 +632,9 @@ impl App {
                 self.accent_idx = (self.accent_idx + 1) % ACCENT_COLORS.len();
                 self.config.accent_color_idx = self.accent_idx;
                 let _ = self.config.save();
+            }
+            KeyCode::Char('a') => {
+                self.advanced_view = !self.advanced_view;
             }
             KeyCode::Enter => {
                 if let Some(idx) = self.table_state.selected() {

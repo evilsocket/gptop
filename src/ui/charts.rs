@@ -2,12 +2,12 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph};
+use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Wrap};
 use ratatui::Frame;
 
 use std::collections::VecDeque;
 
-use crate::backend::GpuMetrics;
+use crate::backend::{DeviceInfo, GpuMetrics, SystemMetrics};
 
 const CHART_COLORS: &[Color] = &[
     Color::Green,
@@ -158,4 +158,158 @@ pub(crate) fn render_chart(
         );
 
     f.render_widget(chart, area);
+}
+
+pub fn render_advanced_view(
+    f: &mut Frame,
+    area: Rect,
+    system: &SystemMetrics,
+    devices: &[DeviceInfo],
+    gpu_metrics: &[GpuMetrics],
+    accent: Color,
+) {
+    let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
+    let value_style = Style::default().fg(Color::White);
+    let dim_style = Style::default().fg(Color::DarkGray);
+
+    let mut spans: Vec<Span> = Vec::new();
+    let sep = Span::styled(" | ", Style::default().fg(Color::DarkGray));
+
+    // Hostname
+    spans.push(Span::styled(" Host ", label_style));
+    spans.push(Span::styled(&system.hostname, value_style));
+    spans.push(sep.clone());
+
+    // Uptime
+    let uptime_days = system.uptime_secs / 86400;
+    let uptime_hours = (system.uptime_secs % 86400) / 3600;
+    let uptime_mins = (system.uptime_secs % 3600) / 60;
+    let uptime_str = if uptime_days > 0 {
+        format!("{}d {}h {}m", uptime_days, uptime_hours, uptime_mins)
+    } else if uptime_hours > 0 {
+        format!("{}h {}m", uptime_hours, uptime_mins)
+    } else {
+        format!("{}m", uptime_mins)
+    };
+    spans.push(Span::styled(" Uptime ", label_style));
+    spans.push(Span::styled(uptime_str, value_style));
+    spans.push(sep.clone());
+
+    // External IP
+    if let Some(ref ip) = system.external_ip {
+        spans.push(Span::styled(" IP ", label_style));
+        spans.push(Span::styled(ip, value_style));
+        spans.push(sep.clone());
+    }
+
+    // System RAM
+    let ram_total_gb = system.ram_total as f64 / 1024.0 / 1024.0 / 1024.0;
+    let ram_used_gb = system.ram_used as f64 / 1024.0 / 1024.0 / 1024.0;
+    let ram_pct = if system.ram_total > 0 {
+        system.ram_used as f64 / system.ram_total as f64 * 100.0
+    } else {
+        0.0
+    };
+    spans.push(Span::styled(" RAM ", label_style));
+    spans.push(Span::styled(
+        format!("{:.1}/{:.1}G ({:.0}%)", ram_used_gb, ram_total_gb, ram_pct),
+        value_style,
+    ));
+    spans.push(sep.clone());
+
+    // Swap
+    if system.swap_total > 0 {
+        let swap_total_gb = system.swap_total as f64 / 1024.0 / 1024.0 / 1024.0;
+        let swap_used_gb = system.swap_used as f64 / 1024.0 / 1024.0 / 1024.0;
+        let swap_pct = system.swap_used as f64 / system.swap_total as f64 * 100.0;
+        spans.push(Span::styled(" Swap ", label_style));
+        spans.push(Span::styled(
+            format!(
+                "{:.1}/{:.1}G ({:.0}%)",
+                swap_used_gb, swap_total_gb, swap_pct
+            ),
+            value_style,
+        ));
+        spans.push(sep.clone());
+    }
+
+    // CPU Power (Apple Silicon)
+    if let Some(cpu_pow) = system.cpu_power {
+        spans.push(Span::styled(" CPU ", label_style));
+        spans.push(Span::styled(format!("{:.1}W", cpu_pow), value_style));
+        spans.push(sep.clone());
+    }
+
+    // ANE Power (Apple Silicon)
+    if let Some(ane_pow) = system.ane_power {
+        spans.push(Span::styled(" ANE ", label_style));
+        spans.push(Span::styled(format!("{:.1}W", ane_pow), value_style));
+        spans.push(sep.clone());
+    }
+
+    // Per-GPU advanced metrics
+    for (i, metrics) in gpu_metrics.iter().enumerate() {
+        let device_name = devices.get(i).map(|d| d.name.as_str()).unwrap_or("GPU");
+
+        // Power limit
+        if let Some(limit) = metrics.power_limit_watts {
+            let pct = if limit > 0.0 {
+                metrics.power_watts as f64 / limit as f64 * 100.0
+            } else {
+                0.0
+            };
+            spans.push(Span::styled(format!(" {}Pwr ", device_name), label_style));
+            spans.push(Span::styled(
+                format!("{:.1}/{:.0}W ({:.0}%)", metrics.power_watts, limit, pct),
+                value_style,
+            ));
+            spans.push(sep.clone());
+        }
+
+        // Encoder
+        if let Some(enc) = metrics.encoder_pct {
+            spans.push(Span::styled(" Enc ", label_style));
+            spans.push(Span::styled(format!("{:.0}%", enc), value_style));
+            spans.push(sep.clone());
+        }
+
+        // Decoder
+        if let Some(dec) = metrics.decoder_pct {
+            spans.push(Span::styled(" Dec ", label_style));
+            spans.push(Span::styled(format!("{:.0}%", dec), value_style));
+            spans.push(sep.clone());
+        }
+
+        // Fan speed
+        if let Some(fan) = metrics.fan_speed_pct {
+            spans.push(Span::styled(" Fan ", label_style));
+            spans.push(Span::styled(format!("{}%", fan), value_style));
+            spans.push(sep.clone());
+        }
+
+        // Throttling
+        if let Some(ref reason) = metrics.throttling_reason {
+            spans.push(Span::styled(
+                " Throttled ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(reason.to_string(), dim_style));
+            spans.push(sep.clone());
+        }
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            " Advanced ",
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(Line::from(spans)).wrap(Wrap { trim: false }),
+        inner,
+    );
 }
