@@ -26,7 +26,8 @@ impl BenchmarkRunner {
 
         #[cfg(target_os = "macos")]
         {
-            // Use wgpu backend (Metal has issues)
+            // TODO: Metal backend has initialization issues causing hangs
+            // For now, use wgpu backend which is stable but slower
             println!("Using wgpu backend for cross-platform compatibility");
             let context = Arc::new(pollster::block_on(GpuContext::new())?);
             Ok(Self {
