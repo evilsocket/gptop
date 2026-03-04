@@ -26,10 +26,22 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 hostname = "0.4"
+wgpu = "23"
+pollster = "0.3"
+bytemuck = { version = "1.21", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+dirs = "5"
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
+metal = "0.29"
+objc = "0.2"
+block = "0.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nvml-wrapper = "0.10"
