@@ -146,6 +146,19 @@ impl GpuBackend for AppleBackend {
             0
         };
 
+        // Calculate theoretical max TFLOPS based on hardware specs (max freq)
+        // Apple GPU architecture: cores × ALUs per core × freq (GHz) × 2 (FMA ops)
+        // ALU count varies by generation (M1=128, M2/M3=144, M4=192 per core)
+        let alus_per_core = if self.soc.chip_name.contains("M4") {
+            192
+        } else if self.soc.chip_name.contains("M3") || self.soc.chip_name.contains("M2") {
+            144
+        } else {
+            128 // M1 and fallback
+        };
+        let fp32_tflops =
+            Some(self.soc.gpu_cores as f32 * alus_per_core as f32 * self.soc.gpu_freq_max_mhz as f32 * 2.0 / 1e6);
+
         // Temperature: try SMC first, then HID fallback
         let gpu_temp = self
             .smc
@@ -171,24 +184,18 @@ impl GpuBackend for AppleBackend {
             power_watts: gpu_power_watts as f32,
             power_limit_watts: None,
             temp_celsius: gpu_temp,
-            // Apple GPU cores have 128 ALUs each, 2 FP32 ops/clock (FMA)
-            fp32_tflops: if gpu_freq_mhz > 0 {
-                Some(self.soc.gpu_cores as f32 * 128.0 * gpu_freq_mhz as f32 * 2.0 / 1e6)
-            } else {
-                None
-            },
+            fp32_tflops,
             encoder_pct: None,
             decoder_pct: None,
             fan_speed_pct: None,
             throttling_reason: None,
-            efficiency_gflops_per_watt: if gpu_freq_mhz > 0 && gpu_power_watts > 0.0 {
-                let tflops = self.soc.gpu_cores as f32 * 128.0 * gpu_freq_mhz as f32 * 2.0 / 1e6;
-                Some(tflops * 1000.0 / gpu_power_watts as f32)
+            efficiency_gflops_per_watt: if gpu_power_watts > 0.0 {
+                fp32_tflops.map(|t| t * 1000.0 / gpu_power_watts as f32)
             } else {
                 None
             },
             efficiency_score: if gpu_freq_mhz > 0 && gpu_power_watts > 0.0 {
-                let tflops = self.soc.gpu_cores as f32 * 128.0 * gpu_freq_mhz as f32 * 2.0 / 1e6;
+                let tflops = self.soc.gpu_cores as f32 * alus_per_core as f32 * gpu_freq_mhz as f32 * 2.0 / 1e6;
                 Some(((gpu_utilization * tflops) / gpu_power_watts as f32).clamp(0.0, 100.0))
             } else {
                 None
