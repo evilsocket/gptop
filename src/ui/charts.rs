@@ -75,6 +75,26 @@ pub fn render_mem_chart(
     render_chart(f, area, history, &title, color);
 }
 
+pub fn render_efficiency_chart(
+    f: &mut Frame,
+    area: Rect,
+    history: &VecDeque<(f64, f64)>,
+    device_name: &str,
+    color: Color,
+    current_efficiency: f32,
+    gflops_per_watt: Option<f32>,
+) {
+    let metric_text = gflops_per_watt
+        .map(|g| format!("{:.1} GF/W", g))
+        .unwrap_or_else(|| "N/A".to_string());
+
+    let title = format!(
+        " {} EFF {:.0}% {} ",
+        device_name, current_efficiency, metric_text
+    );
+    render_chart(f, area, history, &title, color);
+}
+
 pub fn render_info_bar(f: &mut Frame, area: Rect, metrics: Option<&GpuMetrics>, accent: Color) {
     let Some(m) = metrics else {
         return;
@@ -105,9 +125,39 @@ pub fn render_info_bar(f: &mut Frame, area: Rect, metrics: Option<&GpuMetrics>, 
     ];
 
     if let Some(tflops) = m.fp32_tflops {
-        spans.push(sep);
+        spans.push(sep.clone());
         spans.push(Span::styled("FP32 ", label));
         spans.push(Span::styled(format!("{:.1} TFLOPS", tflops), value));
+    }
+
+    if let Some(eff) = m.efficiency_score {
+        spans.push(sep.clone());
+        spans.push(Span::styled("Eff ", label));
+        spans.push(Span::styled(
+            format!("{:.0}%", eff),
+            Style::default().fg(if eff > 70.0 {
+                Color::Green
+            } else if eff > 40.0 {
+                Color::Yellow
+            } else {
+                Color::Red
+            }),
+        ));
+    }
+
+    if let Some(eff) = m.efficiency_score {
+        spans.push(sep.clone());
+        spans.push(Span::styled("Eff ", label));
+        spans.push(Span::styled(
+            format!("{:.0}%", eff),
+            Style::default().fg(if eff > 70.0 {
+                Color::Green
+            } else if eff > 40.0 {
+                Color::Yellow
+            } else {
+                Color::Red
+            }),
+        ));
     }
 
     f.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -294,6 +344,20 @@ pub fn render_advanced_view(
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::styled(reason.to_string(), dim_style));
+            spans.push(sep.clone());
+        }
+
+        // Efficiency
+        if let Some(eff_score) = metrics.efficiency_score {
+            spans.push(Span::styled(format!(" {}Eff ", device_name), label_style));
+            spans.push(Span::styled(
+                format!(
+                    "{:.0}% ({:.1} GF/W)",
+                    eff_score,
+                    metrics.efficiency_gflops_per_watt.unwrap_or(0.0)
+                ),
+                value_style,
+            ));
             spans.push(sep.clone());
         }
     }

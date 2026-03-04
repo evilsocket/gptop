@@ -48,6 +48,7 @@ Press `a` to toggle the Advanced view, which shows additional system and GPU met
 - **Dec**: Hardware decoder utilization (NVIDIA only)
 - **Fan**: Fan speed percentage (NVIDIA only)
 - **Throttled**: Thermal throttling warning (if temperature > 85°C)
+- **Efficiency**: Performance-per-watt chart and metrics (GFLOPS/Watt)
 
 ## Process Detail Modal
 

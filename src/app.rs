@@ -499,6 +499,7 @@ pub struct App {
     pub gpu_util_history: Vec<VecDeque<(f64, f64)>>,
     pub mem_util_history: Vec<VecDeque<(f64, f64)>>,
     pub power_history: Vec<VecDeque<(f64, f64)>>,
+    pub efficiency_history: Vec<VecDeque<(f64, f64)>>,
     pub latest: Option<SampleResult>,
     pub process_sort_col: usize,
     pub process_sort_asc: bool,
@@ -525,6 +526,7 @@ impl App {
             gpu_util_history: vec![VecDeque::new(); device_count],
             mem_util_history: vec![VecDeque::new(); device_count],
             power_history: vec![VecDeque::new(); device_count],
+            efficiency_history: vec![VecDeque::new(); device_count],
             latest: None,
             table_state: TableState::default(),
             sorted_processes: Vec::new(),
@@ -571,6 +573,12 @@ impl App {
                 self.power_history[id].push_back((elapsed, power_pct));
                 if self.power_history[id].len() > MAX_HISTORY {
                     self.power_history[id].pop_front();
+                }
+
+                let efficiency = metrics.efficiency_score.unwrap_or(0.0) as f64;
+                self.efficiency_history[id].push_back((elapsed, efficiency));
+                if self.efficiency_history[id].len() > MAX_HISTORY {
+                    self.efficiency_history[id].pop_front();
                 }
             }
         }
@@ -817,7 +825,7 @@ pub fn run_json(mut backend: Box<dyn GpuBackend>, duration_ms: u64) -> Result<()
             "total_memory": d.total_memory,
             "core_count": d.core_count,
         })).collect::<Vec<_>>(),
-        "gpu_metrics": sample.gpu_metrics.iter().map(|m| serde_json::json!({
+    "gpu_metrics": sample.gpu_metrics.iter().map(|m| serde_json::json!({
             "device_id": m.device_id,
             "utilization_pct": m.utilization_pct,
             "memory_used": m.memory_used,
@@ -826,6 +834,8 @@ pub fn run_json(mut backend: Box<dyn GpuBackend>, duration_ms: u64) -> Result<()
             "freq_max_mhz": m.freq_max_mhz,
             "power_watts": m.power_watts,
             "temp_celsius": m.temp_celsius,
+            "efficiency_score": m.efficiency_score,
+            "efficiency_gflops_per_watt": m.efficiency_gflops_per_watt,
         })).collect::<Vec<_>>(),
         "processes": sample.processes.iter().map(|p| serde_json::json!({
             "pid": p.pid,

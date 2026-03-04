@@ -181,6 +181,18 @@ impl GpuBackend for AppleBackend {
             decoder_pct: None,
             fan_speed_pct: None,
             throttling_reason: None,
+            efficiency_gflops_per_watt: if gpu_freq_mhz > 0 && gpu_power_watts > 0.0 {
+                let tflops = self.soc.gpu_cores as f32 * 128.0 * gpu_freq_mhz as f32 * 2.0 / 1e6;
+                Some(tflops * 1000.0 / gpu_power_watts as f32)
+            } else {
+                None
+            },
+            efficiency_score: if gpu_freq_mhz > 0 && gpu_power_watts > 0.0 {
+                let tflops = self.soc.gpu_cores as f32 * 128.0 * gpu_freq_mhz as f32 * 2.0 / 1e6;
+                Some(((gpu_utilization * tflops) / gpu_power_watts as f32).clamp(0.0, 100.0))
+            } else {
+                None
+            },
         }];
 
         // Hostname

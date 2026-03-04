@@ -149,6 +149,22 @@ impl GpuBackend for NvidiaBackend {
                 decoder_pct,
                 fan_speed_pct,
                 throttling_reason,
+                efficiency_gflops_per_watt: dev_info.core_count.and_then(|cores| {
+                    if power_watts > 0.0 {
+                        let tflops = cores as f32 * freq_mhz as f32 * 2.0 / 1e6;
+                        Some(tflops * 1000.0 / power_watts)
+                    } else {
+                        None
+                    }
+                }),
+                efficiency_score: dev_info.core_count.and_then(|cores| {
+                    if power_watts > 0.0 {
+                        let tflops = cores as f32 * freq_mhz as f32 * 2.0 / 1e6;
+                        Some(((gpu_util as f32 * tflops) / power_watts).clamp(0.0, 100.0))
+                    } else {
+                        None
+                    }
+                }),
             });
 
             // Collect processes

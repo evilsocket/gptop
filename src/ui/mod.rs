@@ -18,14 +18,15 @@ pub fn render(f: &mut Frame, app: &mut App) {
     // Adaptive chart heights: reserve at least 8 lines for the process table + footer,
     // then split remaining space between GPU chart, memory chart and info bar.
     let advanced_h = if app.advanced_view { 3u16 } else { 0u16 };
+    let eff_chart_h = if app.advanced_view { 4u16 } else { 0u16 };
     let min_procs = 8u16;
-    // Reserve footer (1) + info bar (1) + advanced (0-3)
-    let reserved = 2u16 + advanced_h;
+    // Reserve footer (1) + info bar (1) + advanced (0-3) + efficiency (0-4)
+    let reserved = 2u16 + advanced_h + eff_chart_h;
     let available = size.height.saturating_sub(reserved);
     let chart_budget = available.saturating_sub(min_procs);
     // GPU chart gets ~60% of chart budget, memory chart gets ~40%
     let gpu_chart_h = (chart_budget * 6 / 10).max(5);
-    let mem_chart_h = (chart_budget.saturating_sub(gpu_chart_h)).max(4);
+    let mem_chart_h = chart_budget.saturating_sub(gpu_chart_h).max(4);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -33,7 +34,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
             Constraint::Length(advanced_h), // advanced view (optional) - at top
             Constraint::Length(gpu_chart_h),
             Constraint::Length(mem_chart_h),
-            Constraint::Length(1), // info bar
+            Constraint::Length(eff_chart_h), // efficiency chart (only in advanced view)
+            Constraint::Length(1),           // info bar
             Constraint::Min(min_procs),
             Constraint::Length(1), // footer
         ])
@@ -54,7 +56,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     };
     let gpu_columns = per_gpu(chunks[1]);
     let mem_columns = per_gpu(chunks[2]);
-    let info_columns = per_gpu(chunks[3]);
+    let info_columns = per_gpu(chunks[4]);
 
     for (i, device) in app.devices.iter().enumerate() {
         let metrics = app.latest.as_ref().and_then(|s| s.gpu_metrics.get(i));
@@ -87,7 +89,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         charts::render_info_bar(f, info_columns[i], metrics, accent);
     }
 
-    // Render advanced view if enabled (at top)
+    // Render advanced view and efficiency charts if enabled (at top)
     if app.advanced_view {
         if let Some(ref latest) = app.latest {
             charts::render_advanced_view(
@@ -98,10 +100,28 @@ pub fn render(f: &mut Frame, app: &mut App) {
                 &latest.gpu_metrics,
                 accent,
             );
+
+            // Render efficiency charts in advanced view
+            let eff_columns = per_gpu(chunks[3]);
+            for (i, device) in app.devices.iter().enumerate() {
+                let metrics = latest.gpu_metrics.get(i);
+                let color = charts::device_color(i, device_count, accent);
+                let eff_score = metrics.and_then(|m| m.efficiency_score).unwrap_or(0.0);
+                let eff_gflops = metrics.and_then(|m| m.efficiency_gflops_per_watt);
+                charts::render_efficiency_chart(
+                    f,
+                    eff_columns[i],
+                    &app.efficiency_history[i],
+                    &device.name,
+                    color,
+                    eff_score,
+                    eff_gflops,
+                );
+            }
         }
     }
 
-    // Render process table - always at chunk[4]
+    // Render process table - always at chunk[5]
     let sort_col = app.process_sort_col;
     let sort_asc = app.process_sort_asc;
     if let Some(ref latest) = app.latest {
@@ -110,7 +130,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         app.sorted_processes = sorted_procs.clone();
         processes::render_processes(
             f,
-            chunks[4],
+            chunks[5],
             &sorted_procs,
             sort_col,
             sort_asc,
@@ -119,8 +139,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
         );
     }
 
-    // Render footer with keybindings - always at chunk[5]
-    render_footer(f, chunks[5], accent);
+    // Render footer with keybindings - always at chunk[6]
+    render_footer(f, chunks[6], accent);
 
     // Render process detail modal if open
     if let Some(ref detail) = app.process_detail {

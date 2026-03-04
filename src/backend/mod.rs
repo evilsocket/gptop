@@ -32,6 +32,8 @@ pub struct GpuMetrics {
     pub decoder_pct: Option<f32>,
     pub fan_speed_pct: Option<u32>,
     pub throttling_reason: Option<String>,
+    pub efficiency_score: Option<f32>,
+    pub efficiency_gflops_per_watt: Option<f32>,
 }
 
 /// A process using the GPU
