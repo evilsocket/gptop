@@ -24,11 +24,7 @@ extern "C" {
     ) -> CFDictionaryRef;
 
     // Merges b into a in-place. Returns void effectively (we ignore return).
-    fn IOReportMergeChannels(
-        a: CFDictionaryRef,
-        b: CFDictionaryRef,
-        nil: CFTypeRef,
-    );
+    fn IOReportMergeChannels(a: CFDictionaryRef, b: CFDictionaryRef, nil: CFTypeRef);
 
     fn IOReportCreateSubscription(
         a: *const c_void,
@@ -120,9 +116,8 @@ impl IOReportSubscription {
 
         // Create a mutable copy (required by IOReportCreateSubscription)
         let size = unsafe { CFDictionaryGetCount(base) };
-        let mutable_chan = unsafe {
-            CFDictionaryCreateMutableCopy(kCFAllocatorDefault, size, base)
-        };
+        let mutable_chan =
+            unsafe { CFDictionaryCreateMutableCopy(kCFAllocatorDefault, size, base) };
 
         // Release all original channel dicts
         for ch in &channel_dicts {
@@ -158,9 +153,8 @@ impl IOReportSubscription {
 
     /// Take a snapshot (returns opaque sample ref).
     fn take_sample(&self) -> Result<CFDictionaryRef> {
-        let sample = unsafe {
-            IOReportCreateSamples(self.subscription, self.channels, std::ptr::null())
-        };
+        let sample =
+            unsafe { IOReportCreateSamples(self.subscription, self.channels, std::ptr::null()) };
         if sample.is_null() {
             return Err(anyhow!("IOReportCreateSamples returned null"));
         }
@@ -173,9 +167,7 @@ impl IOReportSubscription {
         std::thread::sleep(std::time::Duration::from_millis(duration_ms));
         let sample2 = self.take_sample()?;
 
-        let delta = unsafe {
-            IOReportCreateSamplesDelta(sample1, sample2, std::ptr::null())
-        };
+        let delta = unsafe { IOReportCreateSamplesDelta(sample1, sample2, std::ptr::null()) };
         unsafe {
             CFRelease(sample1 as CFTypeRef);
             CFRelease(sample2 as CFTypeRef);
@@ -244,20 +236,18 @@ fn parse_delta_samples(delta: CFDictionaryRef) -> Vec<ChannelSample> {
                 continue;
             }
 
-            let group = from_cfstring(IOReportChannelGetGroup(entry))
-                .unwrap_or_default();
-            let subgroup = from_cfstring(IOReportChannelGetSubGroup(entry))
-                .unwrap_or_default();
-            let channel_name = from_cfstring(IOReportChannelGetChannelName(entry))
-                .unwrap_or_default();
+            let group = from_cfstring(IOReportChannelGetGroup(entry)).unwrap_or_default();
+            let subgroup = from_cfstring(IOReportChannelGetSubGroup(entry)).unwrap_or_default();
+            let channel_name =
+                from_cfstring(IOReportChannelGetChannelName(entry)).unwrap_or_default();
 
             // Try state-based first
             let state_count = IOReportStateGetCount(entry);
             let data = if state_count > 0 {
                 let mut states = Vec::with_capacity(state_count as usize);
                 for s in 0..state_count {
-                    let name = from_cfstring(IOReportStateGetNameForIndex(entry, s))
-                        .unwrap_or_default();
+                    let name =
+                        from_cfstring(IOReportStateGetNameForIndex(entry, s)).unwrap_or_default();
                     let residency = IOReportStateGetResidency(entry, s);
                     let transitions = IOReportStateGetInTransitions(entry, s);
                     states.push(StateResidency {

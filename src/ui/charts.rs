@@ -75,20 +75,13 @@ pub fn render_mem_chart(
     render_chart(f, area, history, &title, color);
 }
 
-pub fn render_info_bar(
-    f: &mut Frame,
-    area: Rect,
-    metrics: Option<&GpuMetrics>,
-    accent: Color,
-) {
+pub fn render_info_bar(f: &mut Frame, area: Rect, metrics: Option<&GpuMetrics>, accent: Color) {
     let Some(m) = metrics else {
         return;
     };
 
     let sep = Span::styled(" | ", Style::default().fg(Color::DarkGray));
-    let label = Style::default()
-        .fg(accent)
-        .add_modifier(Modifier::BOLD);
+    let label = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let value = Style::default().fg(Color::White);
 
     let mut spans = vec![
@@ -160,11 +153,7 @@ fn render_chart(
         .y_axis(
             Axis::default()
                 .bounds([0.0, 100.0])
-                .labels(vec![
-                    Span::raw("0%"),
-                    Span::raw("50%"),
-                    Span::raw("100%"),
-                ])
+                .labels(vec![Span::raw("0%"), Span::raw("50%"), Span::raw("100%")])
                 .style(Style::default().fg(Color::DarkGray)),
         );
 

@@ -194,7 +194,11 @@ impl GpuBackend for AppleBackend {
             },
             package_power: smc_system_power.or({
                 let total = cpu_power_watts + gpu_power_watts + ane_power_watts;
-                if total > 0.0 { Some(total as f32) } else { None }
+                if total > 0.0 {
+                    Some(total as f32)
+                } else {
+                    None
+                }
             }),
             ram_used,
             ram_total: self.total_ram,
@@ -320,7 +324,13 @@ fn sysctl_string(name: &str) -> Result<String> {
 }
 
 fn detect_gpu_core_count() -> Option<u32> {
-    // Try system_profiler
+    // Try IOKit first: query AGXAccelerator service for "gpu-core-count" property
+    let result = unsafe { detect_gpu_core_count_iokit() };
+    if result.is_some() {
+        return result;
+    }
+
+    // Fallback: system_profiler
     let output = Command::new("system_profiler")
         .args(["SPDisplaysDataType", "-json"])
         .output()
@@ -333,11 +343,71 @@ fn detect_gpu_core_count() -> Option<u32> {
                 return Some(n);
             }
         }
-        // Try numeric field
         if let Some(n) = display["sppci_cores"].as_u64() {
             return Some(n as u32);
         }
     }
+    None
+}
+
+/// Query IOKit for GPU core count from AGXAccelerator* service properties.
+unsafe fn detect_gpu_core_count_iokit() -> Option<u32> {
+    // Try multiple AGXAccelerator class names across chip generations
+    let class_names = [
+        "AGXAcceleratorG13X",
+        "AGXAcceleratorG14X",
+        "AGXAcceleratorG15X",
+        "AGXAccelerator",
+    ];
+
+    for class in &class_names {
+        let cname = std::ffi::CString::new(*class).ok()?;
+        let matching = smc::IOServiceMatching(cname.as_ptr());
+        if matching.is_null() {
+            continue;
+        }
+
+        let mut iterator: u32 = 0;
+        let kr = smc::IOServiceGetMatchingServices(0, matching, &mut iterator);
+        if kr != 0 || iterator == 0 {
+            continue;
+        }
+
+        let service = smc::IOIteratorNext(iterator);
+        if service != 0 {
+            let mut props: core_foundation_sys::dictionary::CFMutableDictionaryRef =
+                std::ptr::null_mut();
+            let kr =
+                smc::IORegistryEntryCreateCFProperties(service, &mut props, std::ptr::null(), 0);
+
+            if kr == 0 && !props.is_null() {
+                let dict_ref = props as core_foundation_sys::dictionary::CFDictionaryRef;
+                if let Some(val) = coreutils::cfdict_get_value(dict_ref, "gpu-core-count") {
+                    let result =
+                        coreutils::cfnum_to_i64(val as core_foundation_sys::number::CFNumberRef)
+                            .map(|n| n as u32);
+                    coreutils::safe_cfrelease(val);
+                    core_foundation_sys::base::CFRelease(
+                        props as core_foundation_sys::base::CFTypeRef,
+                    );
+                    smc::IOObjectRelease(service);
+                    smc::IOObjectRelease(iterator);
+                    if result.is_some() {
+                        return result;
+                    }
+                } else {
+                    core_foundation_sys::base::CFRelease(
+                        props as core_foundation_sys::base::CFTypeRef,
+                    );
+                }
+            }
+
+            smc::IOObjectRelease(service);
+        }
+
+        smc::IOObjectRelease(iterator);
+    }
+
     None
 }
 
@@ -382,6 +452,11 @@ extern "C" {
     fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u8) -> i32;
 }
 
+/// Public wrapper for proc_pid_rusage FFI (used by app.rs for native process details).
+pub unsafe fn proc_pid_rusage_raw(pid: i32, flavor: i32, buffer: *mut u8) -> i32 {
+    proc_pid_rusage(pid, flavor, buffer)
+}
+
 /// Get phys_footprint for a process via proc_pid_rusage (RUSAGE_INFO_V4).
 /// This includes GPU/IOAccelerator memory mapped into the process.
 fn get_phys_footprint(pid: u32) -> u64 {
@@ -394,29 +469,105 @@ fn get_phys_footprint(pid: u32) -> u64 {
     u64::from_le_bytes(buf[72..80].try_into().unwrap_or_default())
 }
 
+/// Collect GPU-using process PIDs from IOKit AGXDeviceUserClient entries
+/// using direct IOKit API (no ioreg subprocess).
+/// Extract PID from IOUserClientCreator property of an IOKit child entry.
+fn extract_pid_from_entry(entry: u32) -> Option<u32> {
+    unsafe {
+        let mut props: core_foundation_sys::dictionary::CFMutableDictionaryRef =
+            std::ptr::null_mut();
+        let kr = smc::IORegistryEntryCreateCFProperties(entry, &mut props, std::ptr::null(), 0);
+        if kr != 0 || props.is_null() {
+            return None;
+        }
 
-/// Collect GPU-using process PIDs from IOKit AGXDeviceUserClient entries.
+        let dict_ref = props as core_foundation_sys::dictionary::CFDictionaryRef;
+        let result = coreutils::cfdict_get_value(dict_ref, "IOUserClientCreator").and_then(|val| {
+            let cf_str = val as core_foundation_sys::string::CFStringRef;
+            let creator = coreutils::from_cfstring(cf_str);
+            coreutils::safe_cfrelease(val);
+            creator.and_then(|s| {
+                s.find("pid ").and_then(|pos| {
+                    let after = &s[pos + 4..];
+                    let num: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    num.parse::<u32>().ok()
+                })
+            })
+        });
+
+        core_foundation_sys::base::CFRelease(props as core_foundation_sys::base::CFTypeRef);
+        result
+    }
+}
+
 fn get_gpu_client_pids() -> Vec<u32> {
-    let output = match Command::new("ioreg")
-        .args(["-r", "-c", "AGXDeviceUserClient"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return Vec::new(),
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
     let mut pids = Vec::new();
-    for line in stdout.lines() {
-        // Match: "IOUserClientCreator" = "pid 12080, cake"
-        if let Some(pos) = line.find("\"IOUserClientCreator\"") {
-            let rest = &line[pos..];
-            if let Some(pid_pos) = rest.find("pid ") {
-                let after_pid = &rest[pid_pos + 4..];
-                let num_str: String = after_pid.chars().take_while(|c| c.is_ascii_digit()).collect();
-                if let Ok(pid) = num_str.parse::<u32>() {
-                    pids.push(pid);
+
+    // AGXDeviceUserClient entries are children of the AGXAccelerator service,
+    // not independently registered. Find the accelerator, then iterate children.
+    let accelerator_classes = [
+        "AGXAcceleratorG13X",
+        "AGXAcceleratorG14X",
+        "AGXAcceleratorG15X",
+        "AGXAccelerator",
+    ];
+
+    unsafe {
+        let io_service_plane = std::ffi::CString::new("IOService").unwrap();
+
+        for class in &accelerator_classes {
+            let cname = match std::ffi::CString::new(*class) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let matching = smc::IOServiceMatching(cname.as_ptr());
+            if matching.is_null() {
+                continue;
+            }
+
+            let mut accel_iter: u32 = 0;
+            let kr = smc::IOServiceGetMatchingServices(0, matching, &mut accel_iter);
+            if kr != 0 || accel_iter == 0 {
+                continue;
+            }
+
+            // Iterate all accelerator services
+            loop {
+                let accel = smc::IOIteratorNext(accel_iter);
+                if accel == 0 {
+                    break;
                 }
+
+                // Get children of this accelerator in the IOService plane
+                let mut child_iter: u32 = 0;
+                let kr = smc::IORegistryEntryGetChildIterator(
+                    accel,
+                    io_service_plane.as_ptr(),
+                    &mut child_iter,
+                );
+
+                if kr == 0 && child_iter != 0 {
+                    loop {
+                        let child = smc::IOIteratorNext(child_iter);
+                        if child == 0 {
+                            break;
+                        }
+                        if let Some(pid) = extract_pid_from_entry(child) {
+                            pids.push(pid);
+                        }
+                        smc::IOObjectRelease(child);
+                    }
+                    smc::IOObjectRelease(child_iter);
+                }
+
+                smc::IOObjectRelease(accel);
+            }
+
+            smc::IOObjectRelease(accel_iter);
+
+            // If we found PIDs with this accelerator class, no need to try others
+            if !pids.is_empty() {
+                break;
             }
         }
     }
@@ -491,11 +642,7 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
         // Friendly display name: extract app name from .app bundle path
         let display_name = if let Some(app_pos) = args.find(".app/") {
             let before_app = &args[..app_pos];
-            before_app
-                .rsplit('/')
-                .next()
-                .unwrap_or(&name)
-                .to_string()
+            before_app.rsplit('/').next().unwrap_or(&name).to_string()
         } else {
             name
         };
@@ -524,4 +671,35 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
     });
 
     Ok(processes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_native_get_gpu_client_pids() {
+        let pids = get_gpu_client_pids();
+        // On macOS with a display, there should always be at least WindowServer
+        assert!(
+            !pids.is_empty(),
+            "get_gpu_client_pids() should find at least one GPU client (e.g., WindowServer)"
+        );
+        // Verify PIDs are valid (all > 0)
+        for pid in &pids {
+            assert!(*pid > 0, "PID should be > 0");
+        }
+    }
+
+    #[test]
+    fn test_native_detect_gpu_core_count() {
+        let cores = detect_gpu_core_count();
+        assert!(cores.is_some(), "should detect GPU core count");
+        let n = cores.unwrap();
+        assert!(
+            (6..=80).contains(&n),
+            "GPU core count {} should be in reasonable range",
+            n
+        );
+    }
 }

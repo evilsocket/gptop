@@ -55,9 +55,10 @@ impl HidTempReader {
         unsafe {
             let key = cfstr("PrimaryUsagePage");
             let val = core_foundation::number::CFNumber::from(0xFF00i32);
-            let dict = core_foundation::dictionary::CFDictionary::from_CFType_pairs(&[
-                (key.clone(), val.as_CFType()),
-            ]);
+            let dict = core_foundation::dictionary::CFDictionary::from_CFType_pairs(&[(
+                key.clone(),
+                val.as_CFType(),
+            )]);
             IOHIDEventSystemClientSetMatching(client, dict.as_concrete_TypeRef());
         }
 
@@ -85,10 +86,8 @@ impl HidTempReader {
                 let service = core_foundation_sys::array::CFArrayGetValueAtIndex(services, i)
                     as IOHIDServiceClientRef;
 
-                let name_ref = IOHIDServiceClientCopyProperty(
-                    service,
-                    product_key.as_concrete_TypeRef(),
-                );
+                let name_ref =
+                    IOHIDServiceClientCopyProperty(service, product_key.as_concrete_TypeRef());
                 if name_ref.is_null() {
                     continue;
                 }

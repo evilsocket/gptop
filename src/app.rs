@@ -40,6 +40,161 @@ pub struct ProcessDetail {
 #[cfg(target_os = "macos")]
 extern "C" {
     fn proc_pidpath(pid: i32, buffer: *mut u8, buffersize: u32) -> i32;
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut u8, buffersize: i32) -> i32;
+}
+
+/// Flavor constant for proc_pidinfo to get vnode path info (includes cwd).
+#[cfg(target_os = "macos")]
+const PROC_PIDVNODEPATHINFO: i32 = 9;
+
+/// Flavor constant for proc_pidinfo to get BSD info (ppid, uid, gid, nice, status, etc).
+#[cfg(target_os = "macos")]
+const PROC_PIDTBSDINFO: i32 = 3;
+
+/// Size of proc_vnodepathinfo struct (2352 bytes on macOS).
+/// Layout: pvi_cdir (vnode_info_path, 1176 bytes) + pvi_rdir (vnode_info_path, 1176 bytes).
+/// Each vnode_info_path = vnode_info (152 bytes) + vip_path ([c_char; 1024]).
+/// CWD path is in pvi_cdir.vip_path at offset 152.
+#[cfg(target_os = "macos")]
+const PROC_VNODEPATHINFO_SIZE: i32 = 2352;
+
+/// CWD path offset within proc_vnodepathinfo struct (pvi_cdir.vip_path).
+#[cfg(target_os = "macos")]
+const PROC_VNODEPATHINFO_CWD_OFFSET: usize = 152;
+
+/// Size of proc_bsdinfo struct (136 bytes on macOS).
+#[cfg(target_os = "macos")]
+const PROC_BSDINFO_SIZE: i32 = 136;
+
+/// proc_bsdinfo field offsets (from XNU sys/proc_info.h):
+///   pbi_flags:    0 (u32)
+///   pbi_status:   4 (u32)
+///   pbi_xstatus:  8 (u32)
+///   pbi_pid:     12 (u32)
+///   pbi_ppid:    16 (u32)
+///   pbi_uid:     20 (u32)
+///   pbi_gid:     24 (u32)
+///   pbi_ruid:    28 (u32)
+///   pbi_rgid:    32 (u32)
+///   pbi_svuid:   36 (u32)
+///   pbi_svgid:   40 (u32)
+///   rfu_1:       44 (u32)
+///   pbi_comm:    48 ([c_char; 16])
+///   pbi_name:    64 ([c_char; 32])
+///   pbi_nfiles:  96 (u32)
+///   pbi_pgid:   100 (u32)
+///   pbi_pjobc:  104 (u32)
+///   e_tdev:     108 (u32)
+///   e_tpgid:    112 (u32)
+///   pbi_nice:   116 (i32)
+///   pbi_start_tvsec:  120 (u64)
+///   pbi_start_tvusec: 128 (u64)
+///   Total: 136 bytes
+#[cfg(target_os = "macos")]
+mod bsdinfo_offsets {
+    pub const PBI_STATUS: usize = 4;
+    pub const PBI_PPID: usize = 16;
+    pub const PBI_UID: usize = 20;
+    pub const PBI_GID: usize = 24;
+    pub const PBI_NICE: usize = 116;
+}
+
+/// Get CWD for a process using proc_pidinfo (PROC_PIDVNODEPATHINFO).
+#[cfg(target_os = "macos")]
+fn native_get_cwd(pid: u32) -> String {
+    let mut buf = vec![0u8; PROC_VNODEPATHINFO_SIZE as usize];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            buf.as_mut_ptr(),
+            PROC_VNODEPATHINFO_SIZE,
+        )
+    };
+    if ret <= 0 {
+        return String::new();
+    }
+    // CWD path is a null-terminated C string at the CWD offset
+    let cwd_bytes = &buf[PROC_VNODEPATHINFO_CWD_OFFSET..];
+    let end = cwd_bytes
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(cwd_bytes.len());
+    String::from_utf8_lossy(&cwd_bytes[..end]).to_string()
+}
+
+/// Get BSD info for a process using proc_pidinfo (PROC_PIDTBSDINFO).
+/// Returns (ppid, uid, gid, nice, status_code).
+#[cfg(target_os = "macos")]
+fn native_bsdinfo(pid: u32) -> Option<(u32, u32, u32, i32, u32)> {
+    let mut buf = vec![0u8; PROC_BSDINFO_SIZE as usize];
+    let ret = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDTBSDINFO,
+            0,
+            buf.as_mut_ptr(),
+            PROC_BSDINFO_SIZE,
+        )
+    };
+    if ret <= 0 {
+        return None;
+    }
+    let ppid = u32::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_PPID..bsdinfo_offsets::PBI_PPID + 4]
+            .try_into()
+            .ok()?,
+    );
+    let uid = u32::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_UID..bsdinfo_offsets::PBI_UID + 4]
+            .try_into()
+            .ok()?,
+    );
+    let gid = u32::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_GID..bsdinfo_offsets::PBI_GID + 4]
+            .try_into()
+            .ok()?,
+    );
+    let nice = i32::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_NICE..bsdinfo_offsets::PBI_NICE + 4]
+            .try_into()
+            .ok()?,
+    );
+    let status = u32::from_le_bytes(
+        buf[bsdinfo_offsets::PBI_STATUS..bsdinfo_offsets::PBI_STATUS + 4]
+            .try_into()
+            .ok()?,
+    );
+    Some((ppid, uid, gid, nice, status))
+}
+
+/// Convert a process status code (from proc_bsdinfo) to a ps-style state string.
+#[cfg(target_os = "macos")]
+fn status_to_state(status: u32) -> String {
+    // XNU SIDL=1, SRUN=2, SSLEEP=3, SSTOP=4, SZOMB=5
+    match status {
+        1 => "I".to_string(), // Idle (being created)
+        2 => "R".to_string(), // Running
+        3 => "S".to_string(), // Sleeping
+        4 => "T".to_string(), // Stopped
+        5 => "Z".to_string(), // Zombie
+        _ => "?".to_string(),
+    }
+}
+
+/// Get username from UID using libc::getpwuid.
+#[cfg(target_os = "macos")]
+fn uid_to_username(uid: u32) -> String {
+    unsafe {
+        let pw = libc::getpwuid(uid);
+        if pw.is_null() {
+            return uid.to_string();
+        }
+        std::ffi::CStr::from_ptr((*pw).pw_name)
+            .to_string_lossy()
+            .to_string()
+    }
 }
 
 fn ps_field(pid: u32, field: &str) -> String {
@@ -71,17 +226,7 @@ fn get_exe_path(pid: u32) -> String {
 
 #[cfg(target_os = "macos")]
 fn get_cwd(pid: u32) -> String {
-    std::process::Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-d", "cwd", "-Fn"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            let text = String::from_utf8_lossy(&o.stdout).to_string();
-            text.lines()
-                .find(|l| l.starts_with('n'))
-                .map(|l| l[1..].to_string())
-        })
-        .unwrap_or_default()
+    native_get_cwd(pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -115,6 +260,62 @@ fn kill_process(pid: u32) {
         .output();
 }
 
+#[cfg(target_os = "macos")]
+fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
+    let pid = proc.pid;
+
+    // Native syscalls for ppid, uid, gid, nice, state (1 syscall instead of 5 ps spawns)
+    let (ppid, uid, gid, nice, state) = native_bsdinfo(pid)
+        .map(|(ppid, uid, gid, nice, status)| (ppid, uid, gid, nice, status_to_state(status)))
+        .unwrap_or((0, 0, 0, 0, "?".to_string()));
+
+    // Native RSS from proc_pid_rusage (already have the FFI in backend/apple/mod.rs)
+    let rss = {
+        // rusage_info_v4: phys_footprint at offset 72, but we want ri_resident_size at offset 64
+        let mut buf = [0u8; 512];
+        let ret =
+            unsafe { crate::backend::apple::proc_pid_rusage_raw(pid as i32, 4, buf.as_mut_ptr()) };
+        if ret == 0 {
+            u64::from_le_bytes(buf[64..72].try_into().unwrap_or_default())
+        } else {
+            0
+        }
+    };
+
+    // Still use ps for fields that are hard to replicate natively
+    let started = ps_field(pid, "lstart");
+    let cpu_time = ps_field(pid, "time");
+    let cpu_pct = ps_field(pid, "%cpu").parse::<f32>().unwrap_or(0.0);
+    let mem_pct = ps_field(pid, "%mem").parse::<f32>().unwrap_or(0.0);
+    let vsz = ps_field(pid, "vsz").parse::<u64>().unwrap_or(0) * 1024;
+    let command = ps_field(pid, "command");
+
+    let path = get_exe_path(pid);
+    let cwd = get_cwd(pid);
+
+    ProcessDetail {
+        pid,
+        ppid,
+        name: proc.name.clone(),
+        user: uid_to_username(uid),
+        uid,
+        gid,
+        state,
+        nice,
+        started,
+        cpu_time,
+        cpu_pct,
+        mem_pct,
+        rss,
+        vsz,
+        gpu_memory: proc.gpu_memory,
+        path,
+        cwd,
+        command,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn get_process_detail(proc: &GpuProcess) -> ProcessDetail {
     let pid = proc.pid;
 
@@ -348,8 +549,7 @@ impl App {
             }
             KeyCode::Left => {
                 let col_count = crate::ui::processes::SORT_COLUMN_COUNT;
-                self.process_sort_col =
-                    (self.process_sort_col + col_count - 1) % col_count;
+                self.process_sort_col = (self.process_sort_col + col_count - 1) % col_count;
                 self.config.sort_column = self.process_sort_col;
                 let _ = self.config.save();
             }
@@ -366,8 +566,7 @@ impl App {
                 let _ = self.config.save();
             }
             KeyCode::Char('e') => {
-                self.config.update_interval_ms =
-                    (self.config.update_interval_ms + 250).min(5000);
+                self.config.update_interval_ms = (self.config.update_interval_ms + 250).min(5000);
                 let _ = self.config.save();
             }
             KeyCode::Char('d') => {
@@ -518,4 +717,74 @@ pub fn run_json(mut backend: Box<dyn GpuBackend>, duration_ms: u64) -> Result<()
 
     println!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_native_get_cwd_matches_lsof() {
+        let pid = std::process::id();
+        let native = native_get_cwd(pid);
+        // Verify against std::env (more reliable than lsof)
+        let expected = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        assert_eq!(native, expected, "native_get_cwd should match current_dir");
+    }
+
+    #[test]
+    fn test_native_bsdinfo_ppid() {
+        let pid = std::process::id();
+        let (ppid, _, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed for own pid");
+        let ps_ppid: u32 = ps_field(pid, "ppid").parse().unwrap_or(0);
+        assert_eq!(ppid, ps_ppid, "native ppid should match ps ppid");
+    }
+
+    #[test]
+    fn test_native_bsdinfo_uid() {
+        let pid = std::process::id();
+        let (_, uid, _, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let ps_uid: u32 = ps_field(pid, "uid").parse().unwrap_or(0);
+        assert_eq!(uid, ps_uid, "native uid should match ps uid");
+    }
+
+    #[test]
+    fn test_native_bsdinfo_gid() {
+        let pid = std::process::id();
+        let (_, _, gid, _, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let ps_gid: u32 = ps_field(pid, "gid").parse().unwrap_or(0);
+        assert_eq!(gid, ps_gid, "native gid should match ps gid");
+    }
+
+    #[test]
+    fn test_native_bsdinfo_nice() {
+        let pid = std::process::id();
+        let (_, _, _, nice, _) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let ps_nice: i32 = ps_field(pid, "nice").parse().unwrap_or(0);
+        assert_eq!(nice, ps_nice, "native nice should match ps nice");
+    }
+
+    #[test]
+    fn test_native_bsdinfo_state() {
+        let pid = std::process::id();
+        let (_, _, _, _, status) = native_bsdinfo(pid).expect("bsdinfo should succeed");
+        let state = status_to_state(status);
+        // Our process should be Running (R) or Sleeping (S) — ps may show
+        // R or S depending on timing, so just verify we get a valid state
+        assert!(
+            state == "R" || state == "S",
+            "native state should be R or S, got: {}",
+            state
+        );
+    }
+
+    #[test]
+    fn test_uid_to_username() {
+        let uid = unsafe { libc::getuid() };
+        let name = uid_to_username(uid);
+        let ps_user = ps_field(std::process::id(), "user");
+        assert_eq!(name, ps_user, "uid_to_username should match ps user");
+    }
 }

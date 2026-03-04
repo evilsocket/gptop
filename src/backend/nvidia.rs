@@ -31,11 +31,10 @@ impl NvidiaBackend {
                 .device_by_index(i)
                 .map_err(|e| anyhow!("Failed to get device {}: {}", i, e))?;
 
-            let name = device.name().unwrap_or_else(|_| "Unknown NVIDIA GPU".into());
-            let total_memory = device
-                .memory_info()
-                .map(|m| m.total)
-                .unwrap_or(0);
+            let name = device
+                .name()
+                .unwrap_or_else(|_| "Unknown NVIDIA GPU".into());
+            let total_memory = device.memory_info().map(|m| m.total).unwrap_or(0);
             let core_count = device.num_cores().ok();
 
             devices.push(DeviceInfo {
@@ -97,10 +96,9 @@ impl GpuBackend for NvidiaBackend {
             let mem_info = device.memory_info()?;
 
             // Clocks
-            let freq_mhz = ok_or_unsupported(device.clock_info(Clock::Graphics))
-                .unwrap_or(0);
-            let freq_max_mhz = ok_or_unsupported(device.max_clock_info(Clock::Graphics))
-                .unwrap_or(0);
+            let freq_mhz = ok_or_unsupported(device.clock_info(Clock::Graphics)).unwrap_or(0);
+            let freq_max_mhz =
+                ok_or_unsupported(device.max_clock_info(Clock::Graphics)).unwrap_or(0);
 
             // Power (NVML returns milliwatts)
             let power_mw = ok_or_unsupported(device.power_usage()).unwrap_or(0);
@@ -111,8 +109,7 @@ impl GpuBackend for NvidiaBackend {
                 .map(|mw| mw as f32 / 1000.0);
 
             // Temperature
-            let temp = ok_or_unsupported(device.temperature(TemperatureSensor::Gpu))
-                .unwrap_or(0);
+            let temp = ok_or_unsupported(device.temperature(TemperatureSensor::Gpu)).unwrap_or(0);
 
             // Encoder/decoder utilization
             let encoder_pct = device
@@ -135,9 +132,9 @@ impl GpuBackend for NvidiaBackend {
                 power_limit_watts,
                 temp_celsius: temp as f32,
                 // NVIDIA CUDA cores: 2 FP32 ops/clock (FMA)
-                fp32_tflops: dev_info.core_count.map(|cores| {
-                    cores as f32 * freq_mhz as f32 * 2.0 / 1e6
-                }),
+                fp32_tflops: dev_info
+                    .core_count
+                    .map(|cores| cores as f32 * freq_mhz as f32 * 2.0 / 1e6),
                 encoder_pct,
                 decoder_pct,
             });
@@ -147,12 +144,14 @@ impl GpuBackend for NvidiaBackend {
 
             if let Ok(procs) = device.running_compute_processes() {
                 for p in procs {
-                    *pid_gpu_mem.entry(p.pid).or_insert(0) += used_gpu_memory_bytes(p.used_gpu_memory);
+                    *pid_gpu_mem.entry(p.pid).or_insert(0) +=
+                        used_gpu_memory_bytes(p.used_gpu_memory);
                 }
             }
             if let Ok(procs) = device.running_graphics_processes() {
                 for p in procs {
-                    *pid_gpu_mem.entry(p.pid).or_insert(0) += used_gpu_memory_bytes(p.used_gpu_memory);
+                    *pid_gpu_mem.entry(p.pid).or_insert(0) +=
+                        used_gpu_memory_bytes(p.used_gpu_memory);
                 }
             }
 

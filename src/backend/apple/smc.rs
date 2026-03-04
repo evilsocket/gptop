@@ -97,9 +97,7 @@ impl SmcConnection {
     pub fn read_gpu_temp(&self) -> Option<f32> {
         // GPU temperature sensor keys across Apple Silicon generations
         let keys = [
-            "Tg0f", "Tg0j", "Tg0D", "Tg0d",
-            "Tg05", "Tg0L", "Tg0T",
-            "Tg1f", "Tg1j", "Tg1D",
+            "Tg0f", "Tg0j", "Tg0D", "Tg0d", "Tg05", "Tg0L", "Tg0T", "Tg1f", "Tg1j", "Tg1D",
         ];
         for key in &keys {
             if let Ok(val) = self.read_key_float(key) {
@@ -114,9 +112,7 @@ impl SmcConnection {
     /// Read CPU temperature.
     pub fn read_cpu_temp(&self) -> Option<f32> {
         let keys = [
-            "Tp0f", "Tp0j", "Tp0D", "Tp09", "Tp01",
-            "Tp05", "Tp0L", "Tp0T",
-            "Tp1f", "Tp1j", "Tp1D",
+            "Tp0f", "Tp0j", "Tp0D", "Tp09", "Tp01", "Tp05", "Tp0L", "Tp0T", "Tp1f", "Tp1j", "Tp1D",
         ];
         for key in &keys {
             if let Ok(val) = self.read_key_float(key) {
@@ -235,9 +231,28 @@ extern "C" {
         main_port: u32,
         matching: core_foundation_sys::dictionary::CFDictionaryRef,
     ) -> u32;
+    pub(crate) fn IOServiceGetMatchingServices(
+        main_port: u32,
+        matching: core_foundation_sys::dictionary::CFDictionaryRef,
+        existing: *mut u32,
+    ) -> i32;
+    pub(crate) fn IOIteratorNext(iterator: u32) -> u32;
+    pub(crate) fn IORegistryEntryCreateCFProperties(
+        entry: u32,
+        properties: *mut core_foundation_sys::dictionary::CFMutableDictionaryRef,
+        allocator: core_foundation_sys::base::CFAllocatorRef,
+        options: u32,
+    ) -> i32;
     fn IOServiceOpen(service: u32, owning_task: u32, conn_type: u32, connect: *mut u32) -> i32;
-    fn IOServiceMatching(name: *const i8) -> core_foundation_sys::dictionary::CFDictionaryRef;
-    fn IOObjectRelease(object: u32) -> i32;
+    pub(crate) fn IOServiceMatching(
+        name: *const i8,
+    ) -> core_foundation_sys::dictionary::CFDictionaryRef;
+    pub(crate) fn IOObjectRelease(object: u32) -> i32;
+    pub(crate) fn IORegistryEntryGetChildIterator(
+        entry: u32,
+        plane: *const i8,
+        iterator: *mut u32,
+    ) -> i32;
 }
 
 extern "C" {

@@ -56,15 +56,15 @@ fn cell_value(p: &GpuProcess, sort_idx: usize) -> String {
 
 fn column_width(sort_idx: usize) -> Constraint {
     match sort_idx {
-        0 => Constraint::Length(8),   // PID
-        1 => Constraint::Length(12),  // USER
-        2 => Constraint::Min(10),     // COMMAND (fills remaining)
-        3 => Constraint::Length(4),   // DEV
-        4 => Constraint::Length(10),  // TYPE
-        5 => Constraint::Length(6),   // GPU%
-        6 => Constraint::Length(10),  // GPU MEM
-        7 => Constraint::Length(6),   // CPU%
-        8 => Constraint::Length(10),  // HOST MEM
+        0 => Constraint::Length(8),  // PID
+        1 => Constraint::Length(12), // USER
+        2 => Constraint::Min(10),    // COMMAND (fills remaining)
+        3 => Constraint::Length(4),  // DEV
+        4 => Constraint::Length(10), // TYPE
+        5 => Constraint::Length(6),  // GPU%
+        6 => Constraint::Length(10), // GPU MEM
+        7 => Constraint::Length(6),  // CPU%
+        8 => Constraint::Length(10), // HOST MEM
         _ => Constraint::Length(1),
     }
 }

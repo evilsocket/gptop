@@ -53,10 +53,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     let info_columns = per_gpu(chunks[2]);
 
     for (i, device) in app.devices.iter().enumerate() {
-        let metrics = app
-            .latest
-            .as_ref()
-            .and_then(|s| s.gpu_metrics.get(i));
+        let metrics = app.latest.as_ref().and_then(|s| s.gpu_metrics.get(i));
 
         let (gpu_pct, mem_used, mem_total) = metrics
             .map(|m| (m.utilization_pct, m.memory_used, m.memory_total))
@@ -171,9 +168,7 @@ fn render_process_modal(
     // Clear background
     f.render_widget(Clear, modal_area);
 
-    let label_style = Style::default()
-        .fg(accent)
-        .add_modifier(Modifier::BOLD);
+    let label_style = Style::default().fg(accent).add_modifier(Modifier::BOLD);
     let val_style = Style::default().fg(Color::White);
     let dim_style = Style::default().fg(Color::DarkGray);
 
@@ -189,7 +184,11 @@ fn render_process_modal(
     add_field(&mut lines, "PID", &format!("{}", detail.pid));
     add_field(&mut lines, "PPID", &format!("{}", detail.ppid));
     add_field(&mut lines, "User", &detail.user);
-    add_field(&mut lines, "UID/GID", &format!("{}/{}", detail.uid, detail.gid));
+    add_field(
+        &mut lines,
+        "UID/GID",
+        &format!("{}/{}", detail.uid, detail.gid),
+    );
     add_field(&mut lines, "State", &detail.state);
     add_field(&mut lines, "Nice", &format!("{}", detail.nice));
     add_field(&mut lines, "Started", &detail.started);
@@ -198,14 +197,19 @@ fn render_process_modal(
     add_field(&mut lines, "MEM%", &format!("{:.1}%", detail.mem_pct));
     add_field(&mut lines, "RSS", &format_bytes_long(detail.rss));
     add_field(&mut lines, "VSZ", &format_bytes_long(detail.vsz));
-    add_field(&mut lines, "GPU Memory", &format_bytes_long(detail.gpu_memory));
+    add_field(
+        &mut lines,
+        "GPU Memory",
+        &format_bytes_long(detail.gpu_memory),
+    );
     add_field(&mut lines, "Path", &detail.path);
     add_field(&mut lines, "CWD", &detail.cwd);
 
     // Command line can be long, show it wrapped
-    lines.push(Line::from(vec![
-        Span::styled(" Command Line: ", label_style),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        " Command Line: ",
+        label_style,
+    )]));
     // Wrap command into available width
     let cmd_width = modal_w.saturating_sub(4) as usize;
     if !detail.command.is_empty() {
@@ -224,9 +228,7 @@ fn render_process_modal(
         .border_style(Style::default().fg(accent))
         .title(Span::styled(
             title,
-            Style::default()
-                .fg(accent)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ));
 
     let paragraph = Paragraph::new(lines)
@@ -252,16 +254,26 @@ fn render_kill_confirm(
 
     let text = vec![
         Line::from(""),
+        Line::from(vec![Span::styled(
+            format!(" Kill process {} ({})? ", confirm.pid, confirm.name),
+            Style::default().fg(Color::White),
+        )]),
         Line::from(vec![
             Span::styled(
-                format!(" Kill process {} ({})? ", confirm.pid, confirm.name),
-                Style::default().fg(Color::White),
+                " y ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
             ),
-        ]),
-        Line::from(vec![
-            Span::styled(" y ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
             Span::styled(" Yes  ", Style::default().fg(Color::DarkGray)),
-            Span::styled(" n ", Style::default().fg(Color::Black).bg(accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " n ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" No ", Style::default().fg(Color::DarkGray)),
         ]),
     ];
@@ -271,9 +283,7 @@ fn render_kill_confirm(
         .border_style(Style::default().fg(Color::Red))
         .title(Span::styled(
             " Confirm Kill ",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
 
     let paragraph = Paragraph::new(text).block(block);
