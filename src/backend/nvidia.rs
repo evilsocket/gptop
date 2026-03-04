@@ -111,18 +111,15 @@ impl GpuBackend for NvidiaBackend {
             // Temperature
             let temp = ok_or_unsupported(device.temperature(TemperatureSensor::Gpu)).unwrap_or(0);
 
-            // Fan speed
-            let fan_speed_pct = device.fan_speed().ok();
+            // Fan speed (fan index 0)
+            let fan_speed_pct = device.fan_speed(0).ok();
 
-            // Thermal throttling status
-            let throttling_reason = device
-                .thermal_throttling_status()
-                .ok()
-                .map(|t| match t {
-                    nvml_wrapper::enum_wrappers::device::ThrottlingReason::None => None,
-                    other => Some(format!("{:?}", other)),
-                })
-                .flatten();
+            // Thermal throttling - check if temp is high (approximation since API not available)
+            let throttling_reason = if temp > 85 {
+                Some("HighTemp".to_string())
+            } else {
+                None
+            };
 
             // Encoder/decoder utilization
             let encoder_pct = device
@@ -349,8 +346,10 @@ fn read_system_metrics() -> SystemMetrics {
     // Uptime from /proc/uptime
     let uptime_secs = std::fs::read_to_string("/proc/uptime")
         .ok()
-        .and_then(|s| s.split_whitespace().next())
-        .and_then(|s| s.parse::<f64>().ok())
+        .and_then(|s| {
+            let first = s.split_whitespace().next()?;
+            first.parse::<f64>().ok()
+        })
         .map(|v| v as u64)
         .unwrap_or(0);
 
