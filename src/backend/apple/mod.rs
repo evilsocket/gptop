@@ -954,7 +954,7 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
     Ok(processes)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
 
