@@ -834,6 +834,7 @@ pub fn run_json(mut backend: Box<dyn GpuBackend>, duration_ms: u64) -> Result<()
             "freq_max_mhz": m.freq_max_mhz,
             "power_watts": m.power_watts,
             "temp_celsius": m.temp_celsius,
+            "fp32_tflops": m.fp32_tflops,
             "efficiency_score": m.efficiency_score,
             "efficiency_gflops_per_watt": m.efficiency_gflops_per_watt,
         })).collect::<Vec<_>>(),
