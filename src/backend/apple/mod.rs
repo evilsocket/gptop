@@ -958,11 +958,21 @@ fn get_gpu_processes() -> Result<Vec<GpuProcess>> {
 mod tests {
     use super::*;
 
+    fn has_windowserver() -> bool {
+        std::process::Command::new("ps")
+            .args(["-c", "-o", "comm"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("WindowServer"))
+            .unwrap_or(false)
+    }
+
     #[test]
-    #[ignore] // Requires a display with GPU clients (e.g., WindowServer)
     fn test_native_get_gpu_client_pids() {
+        if !has_windowserver() {
+            return; // Skip in headless/CI
+        }
         let pids = get_gpu_client_pids();
-        // On macOS with a display, there should always be at least WindowServer
+        // On macOS with a display, there should be at least WindowServer
         assert!(
             !pids.is_empty(),
             "get_gpu_client_pids() should find at least one GPU client (e.g., WindowServer)"
@@ -974,8 +984,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires a display with GPU clients (e.g., WindowServer)
     fn test_native_get_gpu_processes() {
+        if !has_windowserver() {
+            return; // Skip in headless/CI
+        }
         let procs = get_gpu_processes().expect("get_gpu_processes should succeed");
         // Should find at least WindowServer
         assert!(
@@ -1006,8 +1018,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // May fail in CI/headless environments
     fn test_native_detect_gpu_core_count() {
+        if !has_windowserver() {
+            return; // Skip in headless/CI
+        }
         let cores = detect_gpu_core_count();
         assert!(cores.is_some(), "should detect GPU core count");
         let n = cores.unwrap();
