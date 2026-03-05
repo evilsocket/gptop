@@ -66,14 +66,23 @@ impl BenchmarkRunner {
     #[cfg(target_os = "macos")]
     fn run_kernel(&self, kernel_type: KernelType, duration_ms: u64) -> Result<KernelStats> {
         if let Some(ref ctx) = self.metal_context {
-            // For now, Metal only supports MatMul (simplified implementation)
+            // Use MPS (Metal Performance Shaders) for optimal matmul performance
             let size = match kernel_type {
                 KernelType::MatMulSmall => 512,
                 KernelType::MatMulMedium => 1024,
                 KernelType::MatMulLarge => 1536,
                 _ => 1024,
             };
-            let metal_stats = ctx.run_matmul(size, duration_ms)?;
+            // Try MPS first for matmul operations
+            let metal_stats = match kernel_type {
+                KernelType::MatMulSmall | KernelType::MatMulMedium | KernelType::MatMulLarge => {
+                    ctx.run_matmul_mps(size, duration_ms).unwrap_or_else(|e| {
+                        eprintln!("[Metal] MPS failed ({}), falling back to custom shader", e);
+                        ctx.run_matmul(size, duration_ms).unwrap()
+                    })
+                }
+                _ => ctx.run_matmul(size, duration_ms)?,
+            };
 
             // Convert metal stats to kernel stats
             Ok(KernelStats {
