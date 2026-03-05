@@ -26,16 +26,30 @@ impl BenchmarkRunner {
 
         #[cfg(target_os = "macos")]
         {
-            // TODO: Metal backend has initialization issues causing hangs
-            // For now, use wgpu backend which is stable but slower
-            println!("Using wgpu backend for cross-platform compatibility");
-            let context = Arc::new(pollster::block_on(GpuContext::new())?);
-            Ok(Self {
-                metal_context: None,
-                wgpu_context: Some(context),
-                storage,
-                backend,
-            })
+            // Try Metal first with diagnostics
+            eprintln!("[Runner] Attempting to initialize Metal backend...");
+            match super::metal_kernels::MetalContext::new() {
+                Ok(metal_ctx) => {
+                    eprintln!("[Runner] Metal initialized successfully!");
+                    Ok(Self {
+                        metal_context: Some(metal_ctx),
+                        wgpu_context: None,
+                        storage,
+                        backend,
+                    })
+                }
+                Err(e) => {
+                    eprintln!("[Runner] Metal initialization failed: {}", e);
+                    eprintln!("[Runner] Falling back to wgpu backend...");
+                    let context = Arc::new(pollster::block_on(GpuContext::new())?);
+                    Ok(Self {
+                        metal_context: None,
+                        wgpu_context: Some(context),
+                        storage,
+                        backend,
+                    })
+                }
+            }
         }
 
         #[cfg(not(target_os = "macos"))]
