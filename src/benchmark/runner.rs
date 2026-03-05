@@ -66,14 +66,14 @@ impl BenchmarkRunner {
     #[cfg(target_os = "macos")]
     fn run_kernel(&self, kernel_type: KernelType, duration_ms: u64) -> Result<KernelStats> {
         if let Some(ref ctx) = self.metal_context {
-            let metal_stats = match kernel_type {
-                KernelType::MatMulSmall => ctx.run_matmul(512, duration_ms),
-                KernelType::MatMulMedium => ctx.run_matmul(1024, duration_ms),
-                KernelType::MatMulLarge => ctx.run_matmul(1536, duration_ms),
-                KernelType::ElementWise => ctx.run_element_wise(duration_ms),
-                KernelType::Bandwidth => ctx.run_bandwidth(duration_ms),
-                _ => ctx.run_matmul(1024, duration_ms), // Default fallback
-            }?;
+            // For now, Metal only supports MatMul (simplified implementation)
+            let size = match kernel_type {
+                KernelType::MatMulSmall => 512,
+                KernelType::MatMulMedium => 1024,
+                KernelType::MatMulLarge => 1536,
+                _ => 1024,
+            };
+            let metal_stats = ctx.run_matmul(size, duration_ms)?;
 
             // Convert metal stats to kernel stats
             Ok(KernelStats {
